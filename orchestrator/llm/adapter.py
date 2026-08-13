@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
@@ -53,6 +54,80 @@ def _parse_json_tolerant(raw: str) -> dict:
         except json.JSONDecodeError as e:
             raise LLMCallError(f"Resposta não é JSON parseável: {raw[:200]!r}") from e
     raise LLMCallError(f"Resposta não contém JSON: {raw[:200]!r}")
+
+
+class GrokCLIAdapter(LLMAdapter):
+    """Headless Grok Build: `grok -p` (substitui o claude -p)."""
+
+    _DISALLOWED = (
+        "run_terminal_cmd,web_search,web_fetch,search_replace,"
+        "read_file,grep,list_dir,Agent"
+    )
+
+    def __init__(
+        self,
+        model: str | None = None,
+        timeout_s: int = 120,
+        extra_args: Optional[list[str]] = None,
+        grok_bin: Optional[str] = None,
+    ):
+        self.model = model if model and model not in ("haiku", "sonnet", "opus") else None
+        self.timeout = timeout_s
+        self.extra_args = extra_args or []
+        self.grok_bin = grok_bin or self._resolve_grok_bin()
+
+    @staticmethod
+    def _resolve_grok_bin() -> str:
+        found = shutil.which("grok")
+        if found:
+            return found
+        home = Path(os.path.expanduser("~")) / ".grok" / "bin"
+        for name in ("grok.exe", "grok"):
+            p = home / name
+            if p.is_file():
+                return str(p)
+        return "grok"
+
+    def ask(self, prompt: str) -> str:
+        args = [
+            self.grok_bin,
+            "-p", prompt,
+            "--output-format", "json",
+            "--verbatim",
+            "--max-turns", "1",
+            "--disallowed-tools", self._DISALLOWED,
+        ]
+        if self.model:
+            args += ["-m", self.model]
+        args += self.extra_args
+        try:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                cwd=tempfile.gettempdir(),
+            )
+        except subprocess.TimeoutExpired as e:
+            raise LLMCallError(f"grok CLI timeout após {self.timeout}s") from e
+        except FileNotFoundError as e:
+            raise LLMCallError(
+                "grok CLI não encontrado. Instale o Grok Build e rode `grok login`."
+            ) from e
+        if result.returncode != 0:
+            raise LLMCallError(
+                f"grok CLI rc={result.returncode}\nstderr: {(result.stderr or '')[:400]}"
+            )
+        raw = (result.stdout or "").strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+        if isinstance(data, dict) and data.get("type") == "error":
+            raise LLMCallError(f"grok CLI: {data.get('message', data)}")
+        if isinstance(data, dict) and "text" in data:
+            return str(data["text"]).strip()
+        return raw
 
 
 class ClaudeCodeCLIAdapter(LLMAdapter):

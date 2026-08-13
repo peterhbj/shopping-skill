@@ -27,7 +27,7 @@ import yaml
 from .browser import Browser, BrowserError, ProductResult
 from .enricher import enrich_list
 from .llm.adapter import (
-    ClaudeCodeCLIAdapter,
+    GrokCLIAdapter,
     LLMAdapter,
     LLMCallError,
     render_ambiguity_prompt,
@@ -156,8 +156,8 @@ def run(
 
     adapter: LLMAdapter | None = None
     if use_llm:
-        adapter = ClaudeCodeCLIAdapter(model=llm_model, timeout_s=llm_timeout)
-        print("[main] LLM habilitado (Claude CLI)", flush=True)
+        adapter = GrokCLIAdapter(model=llm_model, timeout_s=llm_timeout)
+        print("[main] LLM habilitado (grok -p)", flush=True)
     else:
         print("[main] LLM desligado — ambiguidades serão auto-resolvidas", flush=True)
 
@@ -357,8 +357,10 @@ def main() -> int:
                    help="Lança Chromium próprio (default True)")
     p.add_argument("--cdp", action="store_true",
                    help="Usa Chrome existente via CDP (desliga launch-own)")
-    p.add_argument("--use-llm", action="store_true",
-                   help="Habilita Claude CLI para resolver ambiguidades (custa tokens)")
+    p.add_argument("--use-llm", action="store_true", default=True,
+                   help="Usa grok -p nas ambiguidades (default ligado)")
+    p.add_argument("--no-llm", action="store_true",
+                   help="Não chama grok -p; auto-resolve marca preferida")
     p.add_argument("--keep-open", action="store_true", default=True,
                    help="Mantém o browser aberto no final para você fechar a compra")
     p.add_argument("--no-keep-open", action="store_true",
@@ -372,7 +374,7 @@ def main() -> int:
         report_out=args.report_out,
         dry_run=args.dry_run,
         launch_own=launch_own,
-        use_llm=args.use_llm,
+        use_llm=(not args.no_llm),
         keep_open=(not args.no_keep_open),
     )
 

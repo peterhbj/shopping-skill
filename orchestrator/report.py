@@ -36,7 +36,8 @@ class ItemReport:
     total_cost: float
     notes: list[str]
     unit: str | None = None
-    cart_qty: int | None = None
+    cart_qty: float | None = None
+    cart_line_total: float | None = None
 
 
 def normalize_status(status: str) -> str:
@@ -60,6 +61,18 @@ def _names_match(chosen: str | None, cart_name: str) -> bool:
     if not wa:
         return False
     return len(wa & wb) >= min(2, len(wa))
+
+
+def estimated_search_total(items: list[ItemReport]) -> float:
+    """Soma packs × preço do card. Em kg isso é ~1 clique (R$/kg), não o peso real."""
+    return round(sum(i.total_cost for i in items if i.total_cost), 2)
+
+
+def cart_scrape_total(items: list[ItemReport]) -> float | None:
+    vals = [i.cart_line_total for i in items if i.cart_line_total is not None]
+    if not vals:
+        return None
+    return round(sum(vals), 2)
 
 
 def reconcile_with_cart(items: list[ItemReport], lines: list[dict]) -> tuple[list[ItemReport], int]:
@@ -92,13 +105,20 @@ def reconcile_with_cart(items: list[ItemReport], lines: list[dict]) -> tuple[lis
                 it.notes = list(it.notes) + ["não achei esta linha no carrinho"]
             continue
         used.add(hit_i)
-        line_qty = int(lines[hit_i].get("qty") or 1)
+        line = lines[hit_i]
+        line_qty = float(line.get("qty") or 1)
         it.cart_qty = line_qty
+        unit_p = line.get("price_num")
+        line_total = line.get("line_total")
+        if line_total is not None:
+            it.cart_line_total = float(line_total)
+        elif unit_p is not None:
+            it.cart_line_total = round(float(unit_p) * line_qty, 2)
         matched += 1
         if _is_weight_unit(it.unit):
             continue
-        need = int(it.packs_added or it.qty_target or 1)
-        if line_qty < need:
+        need = float(it.packs_added or it.qty_target or 1)
+        if line_qty + 1e-6 < need:
             it.status = "failed_to_add"
             it.notes = list(it.notes) + [f"no carrinho qty={line_qty}, alvo={need}"]
     return items, matched
@@ -115,7 +135,8 @@ def render_report(
     cart_matched: int | None = None,
 ) -> str:
     now = datetime.now(timezone.utc).astimezone()
-    total_cost = sum(i.total_cost for i in items if i.total_cost)
+    estimate = estimated_search_total(items)
+    scraped = cart_scrape_total(items)
     by_status: dict[str, list[ItemReport]] = {}
     for i in items:
         by_status.setdefault(normalize_status(i.status), []).append(i)
@@ -128,7 +149,18 @@ def render_report(
     lines.append(f"- **Perfil**: `{profile_path}`")
     lines.append(f"- **Tempo de execução**: {elapsed_s:.1f}s")
     lines.append(f"- **Itens processados**: {len(items)}")
-    lines.append(f"- **Custo estimado total**: R$ {total_cost:.2f}")
+    if scraped is not None:
+        lines.append(f"- **Total no carrinho (linhas lidas)**: R$ {scraped:.2f}")
+        lines.append(
+            f"- **Estimativa pelos cards da busca**: R$ {estimate:.2f} "
+            f"(packs × preço do card; em kg é 1 clique / R$ por kg, **não** o peso real)"
+        )
+    else:
+        lines.append(
+            f"- **Estimativa pelos cards da busca**: R$ {estimate:.2f} "
+            f"— **não é o total do site**. Carnes/hortifruti entram com 1 clique "
+            f"(peso na balança), então este número costuma ficar mais alto que o carrinho."
+        )
     if cart_lines_count is not None:
         matched = cart_matched if cart_matched is not None else "?"
         lines.append(f"- **Carrinho (linhas lidas)**: {cart_lines_count} · bateram com a lista: {matched}")
@@ -142,9 +174,17 @@ def render_report(
                 "|---|------|---------|-----|---------|----------|-------|"]
         for n, it in enumerate(group, 1):
             name = (it.chosen_name or "—")[:50]
+            if _is_weight_unit(it.unit):
+                qty_s = f"1 clique (~{it.qty_target}{it.unit})"
+                tot = it.cart_line_total if it.cart_line_total is not None else it.total_cost
+                tot_s = f"R${tot:.2f}/kg" if it.cart_line_total is None else f"R${tot:.2f}"
+            else:
+                qty_s = f"{it.packs_added}×{it.qty_target}"
+                tot = it.cart_line_total if it.cart_line_total is not None else it.total_cost
+                tot_s = f"R${tot:.2f}"
             rows.append(
-                f"| {n} | {it.raw[:30]} | {name} | {it.packs_added}×{it.qty_target} | "
-                f"R${it.unit_price:.2f} | R${it.total_cost:.2f} | `{it.rule or '-'}` |"
+                f"| {n} | {it.raw[:30]} | {name} | {qty_s} | "
+                f"R${it.unit_price:.2f} | {tot_s} | `{it.rule or '-'}` |"
             )
         return rows
 

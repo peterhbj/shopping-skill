@@ -358,8 +358,21 @@ window.andorinha_click_decrease = function (index) {
       if (!name) {
         name = texts.find((t) => t.length > 8 && !/^R\$/.test(t) && !/^\d+$/.test(t)) || "";
       }
-      const qtyHit = texts.find((t) => /^\d+$/.test(t) && +t >= 1 && +t <= 99 && +t !== 360);
-      return { name, name_lower: name.toLowerCase(), qty: qtyHit ? parseInt(qtyHit, 10) : 1 };
+      const priceText = texts.find((t) => /^R\$\s*[\d.,]+$/.test(t)) || "";
+      const price = priceText
+        ? parseFloat(priceText.replace("R$", "").replace(/\./g, "").replace(",", ".").trim())
+        : null;
+      const qtyHit = texts.find((t) => {
+        const n = parseFloat(String(t).replace(",", "."));
+        return /^\d+(?:[.,]\d+)?$/.test(t) && n > 0 && n <= 99 && n !== 360;
+      });
+      const qty = qtyHit ? parseFloat(String(qtyHit).replace(",", ".")) : 1;
+      return {
+        name,
+        name_lower: name.toLowerCase(),
+        qty,
+        price_num: Number.isFinite(price) ? price : null,
+      };
     }
 
     const lines = nodes.map(lineFrom).filter((l) => l.name);

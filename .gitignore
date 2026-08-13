@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+enriched-preview.json
+run.json
+relatorio.md
+relatorio-simulacao.md
+.playwright/
+andorinha-pw-profile/
+*.pyc
+.DS_Store
+Thumbs.db

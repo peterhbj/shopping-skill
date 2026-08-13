@@ -1,0 +1,2329 @@
+# =============================================================================
+# SHOPPING KNOWLEDGE BASE - Andorinha Hiper Center
+# =============================================================================
+# Gerado a partir de 10 pedidos (ago/2025 a mai/2026)
+#
+# INSTRUÇÕES PARA O AGENTE:
+# 1. Quando um item da lista de compras corresponder ao campo `generic`, use
+#    `preferred_brand` para especificar a marca no carrinho.
+# 2. Se `preferred_brand` for null, qualquer marca da `alternate_brands` serve.
+# 3. Se `rotation: true`, a marca não importa - varie livremente.
+# 4. O household tem `lactose_free: true` como regra global. Para qualquer
+#    produto lácteo (leite, creme de leite, leite condensado, iogurte), prefira
+#    sempre a versão sem lactose (SL). O campo `lactose_free: true` no produto
+#    indica que essa regra já está aplicada.
+# 5. Use `typical_qty` como quantidade sugerida. Para itens em kg, é a média
+#    observada — ajuste conforme contexto da lista.
+# 6. Itens com `restock_cycle: monthly` aparecem em quase todo pedido grande.
+#    Se não estiverem na lista mas forem `monthly` + `frequency: always`,
+#    considere sugerir proativamente.
+# 7. `seasonal: true` = item comprado apenas em época específica (ex: Natal).
+#    Não sugira fora de contexto.
+# 8. `orders_count` = em quantos dos 10 pedidos analisados o item apareceu.
+# =============================================================================
+
+meta:
+  generated: "2026-06-02"
+  orders_analyzed: 10
+  # Os 8 pedidos principais cobrem out/2025 a mai/2026
+  date_range: "2025-08 a 2026-05"
+  avg_order_value_brl: 1807
+  avg_order_items: 83
+  avg_frequency_days: 30
+  store: "Andorinha Hiper Center Online"
+
+household:
+  lactose_free: true  # preferência familiar global — sempre preferir versão SL em laticínios
+  modality_preference: "entrega"  # mas ocasionalmente faz retirada na loja
+
+# Escala de frequência:
+# always:     9-10/10 pedidos
+# frequent:   6-8/10 pedidos
+# occasional: 3-5/10 pedidos
+# rare:       1-2/10 pedidos
+
+
+# =============================================================================
+# CONFIG — thresholds e parâmetros ajustáveis pelo orchestrator
+# =============================================================================
+config:
+  dominance_threshold_pct: 15      # alternativa precisa ser ≥X% mais barata/unit pra escalar p/ LLM
+  pack_optimization: true          # tentar combinar embalagens menores se reduzir custo total
+  max_packs_per_item: 6            # teto só no pack-opt (ceil(qty/unit_count)); qty explícita da lista não é cortada
+  llm_model: "haiku"               # modelo do sub-agente que resolve ambiguidades
+  llm_timeout_s: 120               # timeout do subprocess `claude -p` (10s overhead + ~10s/call)
+  enrichment:
+    match_threshold: 0.55          # fuzzy match score mínimo (difflib) — 0.45 gerava Maizena→Oreo
+  browser:
+    cdp_url: "http://localhost:9222"
+    click_settle_ms: 1200          # espera após cada clique — o servidor do Andorinha não acompanha UI otimista
+    nav_timeout_ms: 15000
+
+# =============================================================================
+# VOCABULARY — termos informais → generic do KB (ex-ALIASES)
+# Editável manualmente; retroalimentação automática virá em iteração futura.
+# =============================================================================
+vocabulary:
+  # Limpeza
+  candida: "água sanitária"
+  candida grande: "água sanitária"
+  esponja amarela: "esponja multiuso"
+  esponja que nao risca: "esponja não risca"
+  esponja que não risca: "esponja não risca"
+  esponja azul: "esponja não risca"
+  esponja azul que nao risca: "esponja não risca"
+  esponja azul que não risca: "esponja não risca"
+
+  # Mercearia / Despensa
+  folhata: "biscoito cream cracker"
+  bolacha de coco: "biscoito maizena"
+  bolacha maizena: "biscoito maizena"
+  maizena: "biscoito maizena"
+  biscoito maizena: "biscoito maizena"
+  nescan ball: "cereal matinal nescau"
+  nescan: "cereal matinal nescau"
+  nescau ball: "cereal matinal nescau"
+  nescafe: "café solúvel nescafé"
+  nescafé: "café solúvel nescafé"
+  sucrilhos: "cereal matinal sucrilhos"
+  toddy: "achocolatado em pó"
+  refi: "refrigerante bioleve zero limão"
+  refri: "refrigerante bioleve zero limão"
+  agua gas: "água mineral com gás"
+  agua gás: "água mineral com gás"
+  agua com gas: "água mineral com gás"
+  água gás: "água mineral com gás"
+  molho tomate: "molho de tomate sachê"
+  azeite: "azeite extra virgem"
+  vinagre: "vinagre de maçã"
+  sal: "sal refinado"
+  cafe: "café vácuo"
+  café: "café vácuo"
+  torrada: "torrada"
+  pao: "bisnaguinha"
+  pão: "bisnaguinha"
+  atum: "atum natural"
+  detergente: "detergente líquido"
+  requeijao: "requeijão cremoso"
+  requeijão: "requeijão cremoso"
+  lanches criancas: "kit lanchinho elma chips"
+  lanches crianças: "kit lanchinho elma chips"
+
+  # Laticínios
+  leite: "leite sem lactose"
+
+  # Higiene
+  papel higienico: "papel higiênico"
+  papel aluminio: "rolo de alumínio"
+  papel toalha: "papel toalha"
+
+  # Carnes
+  file de frango: "peito de frango"
+  filé de frango: "peito de frango"
+  peito: "peito de frango"
+  bife: "patinho"
+  bifé: "patinho"
+  carne de panela: "acém"
+  linguica defumada: "linguiça calabresa"
+  linguiça defumada: "linguiça calabresa"
+  linguica normal: "linguiça toscana"
+  linguiça normal: "linguiça toscana"
+
+# =============================================================================
+# DIRECT_SEARCH — bypassa KB matching com search string custom
+# Use para produtos de marca específica que não estão no KB, ou cujo
+# fuzzy match retornaria algo errado.
+# =============================================================================
+direct_search:
+  "esponja azul que nao risca":
+    search: "esponja nao risca"
+    generic: "esponja não risca"
+    category: limpeza
+    qty: 1
+    unit: pacote
+    rotation: true
+    notes: ["azul / não risca — não é a amarela multiuso"]
+  "esponja azul que não risca":
+    search: "esponja nao risca"
+    generic: "esponja não risca"
+    category: limpeza
+    qty: 1
+    unit: pacote
+    rotation: true
+    notes: ["azul / não risca — não é a amarela multiuso"]
+  "esponja que nao risca":
+    search: "esponja nao risca"
+    generic: "esponja não risca"
+    category: limpeza
+    qty: 1
+    unit: pacote
+    rotation: true
+    notes: ["azul / não risca — não é a amarela multiuso"]
+  "esponja que não risca":
+    search: "esponja nao risca"
+    generic: "esponja não risca"
+    category: limpeza
+    qty: 1
+    unit: pacote
+    rotation: true
+    notes: ["azul / não risca — não é a amarela multiuso"]
+  "removedor bufalo":
+    search: "removedor bufalo"
+    preferred_brand: "Búfalo"
+    rotation: false
+    notes: ["marca específica não está no KB"]
+  "removedor búfalo":
+    search: "removedor bufalo"
+    preferred_brand: "Búfalo"
+    rotation: false
+    notes: ["marca específica não está no KB"]
+  "mao clareador":
+    search: "limpador clareador"
+    notes: ["produto específico, verificar no site"]
+  "mão clareador":
+    search: "limpador clareador"
+    notes: ["produto específico, verificar no site"]
+  "limpador perfumado coala – orquidea negra":
+    search: "limpador concentrado coala orquidea negra"
+    generic: "limpador concentrado coala"
+    category: limpeza
+    qty: 1
+    unit: un
+    rotation: true
+    notes: ["concentrado 120ml — NÃO lava-roupas"]
+  "limpador perfumado coala orquidea negra":
+    search: "limpador concentrado coala orquidea negra"
+    generic: "limpador concentrado coala"
+    category: limpeza
+    qty: 1
+    unit: un
+    rotation: true
+    notes: ["concentrado 120ml — NÃO lava-roupas"]
+  "limpador perfumado coala – orquídea negra":
+    search: "limpador concentrado coala orquidea negra"
+    generic: "limpador concentrado coala"
+    category: limpeza
+    qty: 1
+    unit: un
+    rotation: true
+    notes: ["concentrado 120ml — NÃO lava-roupas"]
+  "bisteca de copa":
+    search: "bisteca suino copa kg"
+    generic: "bisteca suíno copa"
+    category: proteinas
+    qty: 1
+    unit: kg
+    rotation: true
+    notes: ["corte suíno granel kg — não pacote congelado"]
+  "maizena":
+    search: "biscoito maizena panco"
+    notes: ["preferência: Panco coco / maizena"]
+  "bolacha de coco":
+    search: "biscoito maizena panco coco"
+    notes: ["bolacha de coco ≈ maizena sabor coco"]
+  "bolacha maizena":
+    search: "biscoito maizena panco"
+    notes: ["preferência: Panco"]
+
+  "cafe":
+    search: "cafe 3 coracoes vacuo 500g"
+    generic: "café vácuo"
+    preferred_brand: "3 Corações Vácuo 500g"
+    category: mercearia
+    qty: 2
+    unit: un
+    rotation: false
+    kb_matched: true
+    notes: ["busca forçada — evita filtro de papel"]
+  "café":
+    search: "cafe 3 coracoes vacuo 500g"
+    generic: "café vácuo"
+    preferred_brand: "3 Corações Vácuo 500g"
+    category: mercearia
+    qty: 2
+    unit: un
+    rotation: false
+    kb_matched: true
+    notes: ["busca forçada — evita filtro de papel"]
+  "sucrilhos":
+    search: "sucrilhos kelloggs"
+    generic: "cereal matinal sucrilhos"
+    preferred_brand: "Kellogg's Sucrilhos"
+    category: snacks
+    qty: 1
+    unit: un
+    rotation: false
+    kb_matched: true
+    notes: ["busca forçada"]
+  "arroz":
+    search: "arroz camil tipo 1 5kg"
+    generic: "arroz"
+    preferred_brand: "Camil Tipo 1 5kg"
+    category: mercearia
+    qty: 1
+    unit: pacote
+    rotation: false
+    kb_matched: true
+    notes: ["busca forçada — evita feijão Camil"]
+  "leite condensado":
+    search: "leite condensado zero lactose caixa 395g"
+    generic: "leite condensado"
+    preferred_brand: "Italac S/Lactose Cx 395g"
+    category: laticinios
+    qty: 4
+    unit: un
+    lactose_free: true
+    rotation: false
+    kb_matched: true
+    notes: ["EXPLICITO condensado+caixa — evita leite líquido 1L"]
+  "queijo ralado":
+    search: "queijo ralado 50g"
+    generic: "queijo ralado"
+    preferred_brand: "Vigor Ralado 50g"
+    category: laticinios
+    qty: 6
+    unit: un
+    lactose_free: false
+    rotation: false
+    kb_matched: true
+    notes: ["40-50g — NÃO exige SL (não existe zero lactose)"]
+  "leite 12":
+    search: "leite ninho levinho sem lactose 1l"
+    generic: "leite sem lactose"
+    preferred_brand: "Ninho Levinho S/Lactose 1l"
+    category: laticinios
+    qty: 12
+    unit: un
+    lactose_free: true
+    rotation: false
+    kb_matched: true
+    notes: ["12 caixas de 1L SL"]
+  "leite":
+    search: "leite ninho levinho sem lactose 1l"
+    generic: "leite sem lactose"
+    preferred_brand: "Ninho Levinho S/Lactose 1l"
+    category: laticinios
+    qty: 6
+    unit: un
+    lactose_free: true
+    rotation: false
+    kb_matched: true
+    notes: ["leite líquido SL"]
+  "agua gas":
+    search: "agua mineral com gas minalba 1.5"
+    generic: "água mineral com gás"
+    preferred_brand: "Minalba 1,5lt"
+    category: bebidas
+    qty: 12
+    unit: garrafas
+    rotation: false
+    kb_matched: true
+    notes: ["forçar com gás"]
+  "água gás":
+    search: "agua mineral com gas minalba 1.5"
+    generic: "água mineral com gás"
+    preferred_brand: "Minalba 1,5lt"
+    category: bebidas
+    qty: 12
+    unit: garrafas
+    rotation: false
+    kb_matched: true
+    notes: ["forçar com gás"]
+  "farofa 2":
+    search: "farofa yoki 400g"
+    generic: "farofa de mandioca"
+    preferred_brand: "Yoki 400g"
+    category: mercearia
+    qty: 2
+    unit: un
+    rotation: false
+    kb_matched: true
+    notes: ["evita pipoca Yoki"]
+  "farofa":
+    search: "farofa yoki 400g"
+    generic: "farofa de mandioca"
+    preferred_brand: "Yoki 400g"
+    category: mercearia
+    qty: 2
+    unit: un
+    rotation: false
+    kb_matched: true
+    notes: ["evita pipoca Yoki"]
+  "molho tomate":
+    search: "Molho de tomate"
+    generic: "molho de tomate"
+    preferred_brand: "Heinz Tradicional 240g"
+    category: mercearia
+    qty: 10
+    unit: un
+    rotation: false
+    kb_matched: true
+    notes: ["busca literal do site — estupidamente explícito"]
+  "pao":
+    search: "bisnaguinha kim 300g"
+    generic: "bisnaguinha"
+    preferred_brand: "Kim Pacote 300g"
+    category: padaria
+    qty: 4
+    unit: pacotes
+    rotation: false
+    kb_matched: true
+    notes: ["evita minibolo Kim"]
+  "pão":
+    search: "bisnaguinha kim 300g"
+    generic: "bisnaguinha"
+    preferred_brand: "Kim Pacote 300g"
+    category: padaria
+    qty: 4
+    unit: pacotes
+    rotation: false
+    kb_matched: true
+    notes: ["evita minibolo Kim"]
+  "file de frango":
+    search: "peito de frango s/osso resf"
+    generic: "peito de frango"
+    category: proteinas
+    qty: 4
+    unit: kg
+    rotation: true
+    kb_matched: true
+    notes: ["busca literal do site: Peito De Frango S/Osso Resf"]
+  "filé de frango":
+    search: "peito de frango s/osso resf"
+    generic: "peito de frango"
+    category: proteinas
+    qty: 4
+    unit: kg
+    rotation: true
+    kb_matched: true
+    notes: ["busca literal do site: Peito De Frango S/Osso Resf"]
+  "pipoca":
+    search: "pipoca de microondas"
+    generic: "pipoca microondas"
+    preferred_brand: "Yoki Pop Corn"
+    category: snacks
+    qty: 4
+    unit: un
+    rotation: true
+    kb_matched: true
+    notes: ["microondas — NÃO milho de pipoca"]
+  "refri":
+    search: "refrigerante bioleve zero limao 1.5"
+    generic: "refrigerante bioleve zero limão"
+    preferred_brand: "Bioleve Zero Limão 1,5lt"
+    category: bebidas
+    qty: 6
+    unit: garrafas
+    rotation: false
+    kb_matched: true
+    notes: ["1,5L — evita garrafa 510ml"]
+  "requeijao":
+    search: "requeijao cremoso zero lactose"
+    generic: "requeijão cremoso"
+    preferred_brand: "Danone Zero Lactose"
+    category: laticinios
+    qty: 2
+    unit: un
+    lactose_free: true
+    rotation: false
+    kb_matched: true
+    notes: ["forçar SL"]
+  "requeijão":
+    search: "requeijao cremoso zero lactose"
+    generic: "requeijão cremoso"
+    preferred_brand: "Danone Zero Lactose"
+    category: laticinios
+    qty: 2
+    unit: un
+    lactose_free: true
+    rotation: false
+    kb_matched: true
+    notes: ["forçar SL"]
+
+
+# =============================================================================
+# PROTEÍNAS
+# =============================================================================
+products:
+
+  - generic: "peito de frango"
+    category: proteinas
+    frequency: always
+    orders_count: 8/10
+    preferred_brand: null  # sempre granel/sem marca específica
+    alternate_brands: ["Seara Filé de Peito Congelado 1kg"]
+    typical_qty: 4.0
+    unit: kg
+    qty_range: [2.9, 8.1]
+    package_size: "kg (granel resfriado)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "sempre s/osso resfriado; qty varia bastante — pedir ~4kg como base"
+
+  - generic: "coxa sobrecoxa de frango"
+    category: proteinas
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.1
+    unit: kg
+    qty_range: [1.9, 3.0]
+    package_size: "kg (granel resfriado)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "sempre resfriado; ~2kg por pedido"
+
+  - generic: "coxinha da asa de frango"
+    category: proteinas
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: null
+    alternate_brands: ["Sadia 1kg congelada", "Seara Iqf 1kg"]
+    typical_qty: 1.5
+    unit: kg
+    package_size: "kg (granel) ou pacote 1kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+    notes: "às vezes granel, às vezes pacote congelado Sadia/Seara"
+
+  - generic: "linguiça toscana"
+    category: proteinas
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Seara Granel"
+    alternate_brands: ["Aurora Granel", "Sadia Granel"]
+    typical_qty: 3.0
+    unit: kg
+    qty_range: [1.5, 4.6]
+    package_size: "kg (granel)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Seara é a mais frequente; pedir ~3kg"
+
+  - generic: "linguiça calabresa"
+    category: proteinas
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Seara Granel"
+    alternate_brands: ["Aurora Granel", "Perdigão Granel", "Sadia Granel"]
+    typical_qty: 550
+    unit: g
+    qty_range: [476, 674]
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "marca varia, ~550g; frequentemente comprada junto com toscana"
+
+  - generic: "bacon"
+    category: proteinas
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Sadia Pedaço Granel"
+    alternate_brands: ["Aurora Granel"]
+    typical_qty: 500
+    unit: g
+    qty_range: [262, 616]
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "sempre pedaço granel; ~500g"
+
+  - generic: "carne moída"
+    category: proteinas
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.0
+    unit: kg
+    qty_range: [1.0, 3.0]
+    package_size: "kg (granel)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "dianteiro moído ou patinho moído — ~2kg"
+
+  - generic: "patinho"
+    category: proteinas
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Prata Pedaço"
+    alternate_brands: []
+    typical_qty: 1.8
+    unit: kg
+    package_size: "kg (granel)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "patinho prata, pedaço; às vezes moído"
+
+  - generic: "acém"
+    category: proteinas
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Prata Pedaço"
+    alternate_brands: []
+    typical_qty: 2.0
+    unit: kg
+    qty_range: [1.5, 4.0]
+    package_size: "kg (granel)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "pernil suíno"
+    category: proteinas
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: null
+    alternate_brands: ["Seara"]
+    typical_qty: 2.0
+    unit: kg
+    package_size: "kg (granel resfriado)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "filé de tilápia"
+    category: proteinas
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Aurora Congelado 400g"
+    alternate_brands: ["Karasmar 400g"]
+    typical_qty: 3
+    unit: un
+    package_size: "400g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "sempre congelado 400g; ~3 pacotes"
+
+  - generic: "ovos brancos"
+    category: proteinas
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Shinoda C/20"
+    alternate_brands: ["Shinoda C/30", "Agro Vitta C/20", "Afs C/20"]
+    typical_qty: 2
+    unit: un
+    package_size: "caixa C/20 ou C/30"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Shinoda preferido; 2 caixas por pedido"
+
+  - generic: "salsicha"
+    category: proteinas
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Perdigão Granel"
+    alternate_brands: ["Aurora Granel"]
+    typical_qty: 500
+    unit: g
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+# =============================================================================
+# HORTIFRUTI
+# =============================================================================
+
+  - generic: "banana prata"
+    category: hortifruti
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.0
+    unit: kg
+    qty_range: [1.3, 2.3]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "sempre prata, ~2kg"
+
+  - generic: "tomate"
+    category: hortifruti
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 1.5
+    unit: kg
+    qty_range: [0.9, 3.0]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "Debora ou Carmem; ~1.5kg"
+
+  - generic: "pepino"
+    category: hortifruti
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.5
+    unit: kg
+    qty_range: [1.9, 4.1]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "comum; às vezes japonês"
+
+  - generic: "couve manteiga"
+    category: hortifruti
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2
+    unit: maço
+    package_size: "maço"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "alface"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Americana Tanimaru"
+    alternate_brands: ["Americana Rural", "Lisa Und"]
+    typical_qty: 4
+    unit: un
+    package_size: "un"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Tanimaru é a mais frequente; ~4 unidades"
+
+  - generic: "limão"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 1.5
+    unit: kg
+    qty_range: [0.9, 2.0]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "cebola"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.0
+    unit: kg
+    qty_range: [1.5, 4.0]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "alho"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 1.0
+    unit: kg
+    qty_range: [0.5, 1.1]
+    package_size: "kg (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "batata lavada"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.0
+    unit: kg
+    qty_range: [1.4, 2.9]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "batata doce roxa"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.5
+    unit: kg
+    qty_range: [1.1, 4.1]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "abobrinha italiana"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: null
+    alternate_brands: ["Milafruti Bdja 500g"]
+    typical_qty: 2.5
+    unit: kg
+    package_size: "kg ou bandeja 500g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "cenoura"
+    category: hortifruti
+    frequency: frequent
+    orders_count: 6/10
+    preferred_brand: null
+    alternate_brands: ["Milafruti Bandeja 500g"]
+    typical_qty: 1.0
+    unit: kg
+    package_size: "kg ou bandeja"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+
+  - generic: "manga"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 3.5
+    unit: kg
+    qty_range: [2.9, 4.0]
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+    notes: "Tommy ou Palmer; ~3-4kg"
+
+  - generic: "laranja"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2.0
+    unit: kg
+    package_size: "kg ou saco 3kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+    notes: "Pêra Rio ou saco 3kg De Marchi"
+
+  - generic: "uva thompson"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 6/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2
+    unit: un
+    package_size: "bandeja 500g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "repolho"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 1.7
+    unit: kg
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "brócolis ninja"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2
+    unit: un
+    package_size: "un"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "cheiro verde"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 2
+    unit: maço
+    package_size: "maço"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "pimentão"
+    category: hortifruti
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: null
+    alternate_brands: ["Milafrut Bandeja 300g"]
+    typical_qty: 300
+    unit: g
+    package_size: "kg ou bandeja 300g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+    notes: "verde mais frequente; às vezes vermelho/amarelo/bandeja mista"
+
+  - generic: "goiaba vermelha"
+    category: hortifruti
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: null
+    typical_qty: 1.5
+    unit: kg
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "abóbora japonesa"
+    category: hortifruti
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: null
+    typical_qty: 2.0
+    unit: kg
+    package_size: "kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+# =============================================================================
+# LATICÍNIOS
+# =============================================================================
+
+  - generic: "leite sem lactose"
+    category: laticinios
+    frequency: always
+    orders_count: 8/10
+    preferred_brand: "Ninho Levinho Semidesnatado 1l"
+    alternate_brands: ["Italac Zero Lactose 1l"]
+    typical_qty: 6
+    unit: un
+    package_size: "caixa 1l"
+    lactose_free: true
+    rotation: false
+    restock_cycle: monthly
+    notes: "SEMPRE 6 unidades; semidesnatado; Ninho é preferência forte"
+
+  - generic: "creme de leite"
+    category: laticinios
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Italac Zero Lactose Caixa 200g"
+    alternate_brands: ["Piracanjuba Cx 200g", "Jussara Cx 200g"]
+    typical_qty: 6
+    unit: un
+    package_size: "caixa 200g"
+    lactose_free: true
+    rotation: false
+    restock_cycle: monthly
+    notes: "6 unidades é o padrão; preferir versão SL"
+
+  - generic: "leite condensado"
+    category: laticinios
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Italac S/Lactose Cx 395g"
+    alternate_brands: ["Moça Cx 395g", "Piracanjuba Cx 395g"]
+    typical_qty: 4
+    unit: un
+    package_size: "caixa 395g"
+    lactose_free: true
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "preferir SL; ~4 unidades"
+
+  - generic: "queijo mussarela fatiado"
+    category: laticinios
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: null
+    alternate_brands: ["Litoral Fatiada Kg", "Apolo Fatiado Kg", "Vale do Itá Fatiado Kg"]
+    typical_qty: 450
+    unit: g
+    qty_range: [250, 600]
+    package_size: "g (granel kg)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "qualquer marca fatiada; ~450g"
+
+  - generic: "presunto fatiado"
+    category: laticinios
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: null
+    alternate_brands: ["Sadia Fatiado/Pedaço Kg", "Perdigão Fatiado Kg", "Aurora Fatiado Kg", "Seara Fatiado Kg"]
+    typical_qty: 450
+    unit: g
+    qty_range: [276, 600]
+    package_size: "g (granel kg)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "qualquer marca fatiado; ~450g"
+
+  - generic: "requeijão cremoso"
+    category: laticinios
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Danone Tradicional 200g"
+    alternate_brands: ["Catupiry Pote 420g", "Polenghi Tradicional 200g"]
+    typical_qty: 2
+    unit: un
+    package_size: "200g ou 420g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "margarina"
+    category: laticinios
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Vigor Com Sal 500g"
+    alternate_brands: ["Doriana Com Sal 500g", "Qualy Com Sal 500g"]
+    typical_qty: 1
+    unit: un
+    package_size: "500g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Vigor é clara preferência — 7/10 pedidos"
+
+  - generic: "queijo parmesão ralado"
+    category: laticinios
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Vigor Ralado 50g"
+    alternate_brands: ["President Ralado 50g", "Mococa 40g", "Mimoo 40g"]
+    typical_qty: 6
+    unit: un
+    package_size: "40-50g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Vigor e President alternados; sempre sachê ~50g; 6-8 un"
+
+  - generic: "iogurte garrafa"
+    category: laticinios
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Danone Morango Garrafa 1,25kg"
+    alternate_brands: ["Itambé Morango 1,15kg", "Danone Vitamina Frutas 1,25kg"]
+    typical_qty: 1
+    unit: un
+    package_size: "garrafa 1,25kg ou 1,15kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "petit suisse danoninho"
+    category: laticinios
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Danoninho Morango 480g"
+    alternate_brands: ["Danoninho Morango Banana Maçã 480g", "Danoninho 320g"]
+    typical_qty: 1
+    unit: un
+    package_size: "480g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "queijo frescal"
+    category: laticinios
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Serramar Tradicional Kg"
+    alternate_brands: ["Camanducaia Kg"]
+    typical_qty: 400
+    unit: g
+    package_size: "g (granel kg)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "manteiga"
+    category: laticinios
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Aviação Com Sal Tablete 200g"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "200g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+# =============================================================================
+# MERCEARIA
+# =============================================================================
+
+  - generic: "arroz"
+    category: mercearia
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Camil Tipo 1 5kg"
+    alternate_brands: ["Prato Fino Tipo 1 5kg", "São Lucas 5kg"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "5kg"  # SEMPRE 5kg, nunca 1kg
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "compra a cada 2-3 pedidos; SEMPRE pacote 5kg"
+
+  - generic: "feijão carioca"
+    category: mercearia
+    frequency: frequent
+    orders_count: 6/10
+    preferred_brand: "Camil Tipo 1 1kg"
+    alternate_brands: ["Andorinha 1kg", "Kicaldo 1kg"]
+    typical_qty: 2
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "~2 pacotes por pedido"
+
+  - generic: "feijão preto"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Camil Tipo 1 1kg"
+    alternate_brands: []
+    typical_qty: 1
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "macarrão parafuso"
+    category: mercearia
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Adria Com Ovos 500g"
+    alternate_brands: ["Camil C/Ovos 500g", "Barilla 500g", "Renata 500g"]
+    typical_qty: 4
+    unit: pacote
+    package_size: "500g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "macarrão espaguete"
+    category: mercearia
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Adria N8 Com Ovos 500g"
+    alternate_brands: ["Renata Espaguete N8 500g", "Camil Espaguete 500g", "Barilla 500g"]
+    typical_qty: 4
+    unit: pacote
+    package_size: "500g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "macarrão penne"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Renata Com Ovos 500g"
+    alternate_brands: ["Adria 500g", "Barilla 500g"]
+    typical_qty: 2
+    unit: pacote
+    package_size: "500g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "molho de tomate sachê"
+    category: mercearia
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: "Heinz Tradicional 240g"
+    alternate_brands: ["Salsaretti Tradicional 300g", "Quero Tradicional 240g", "Fugini 300g"]
+    typical_qty: 10
+    unit: un
+    package_size: "sachê 240-300g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Heinz é preferência; 10 sachês por pedido é o padrão"
+
+  - generic: "atum natural"
+    category: mercearia
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: "Coqueiro Sólido Natural 170g"
+    alternate_brands: ["Gomes da Costa Natural 170g"]
+    typical_qty: 6
+    unit: un
+    package_size: "170g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Coqueiro é forte preferência; 4-10 latas por pedido"
+
+  - generic: "azeite extra virgem"
+    category: mercearia
+    frequency: frequent
+    orders_count: 6/10
+    preferred_brand: "Gallo Extra Virgem 500ml"
+    alternate_brands: ["Andorinha Extra Virgem 500ml", "Andorinha Seleção 500ml"]
+    typical_qty: 1
+    unit: un
+    package_size: "vidro 500ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "óleo de soja"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Liza 900ml"
+    alternate_brands: ["Soya 900ml", "Tradição 500ml", "Faisão Real 500ml"]
+    typical_qty: 1
+    unit: un
+    package_size: "900ml ou 500ml"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "azeitona verde fatiada"
+    category: mercearia
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Vale Fértil Fatiada Sachê 120g"
+    alternate_brands: ["Lolita Fatiada Sachê 80g", "Rivoli Fatiada Sachê 150g"]
+    typical_qty: 3
+    unit: un
+    package_size: "sachê 80-150g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Vale Fértil é preferência; sempre sachê fatiada; 3-4 sachês"
+
+  - generic: "cogumelo champignon fatiado"
+    category: mercearia
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Vale Fértil Fatiado Sachê 100g"
+    alternate_brands: ["Arrifana Fatiado Sachê 100g"]
+    typical_qty: 2
+    unit: un
+    package_size: "sachê 100g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "vinagre de maçã"
+    category: mercearia
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Toscano 750ml"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "750ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "farinha de trigo"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Sol 1kg"
+    alternate_brands: ["Dona Benta Sem Fermento 1kg"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "farofa de mandioca"
+    category: mercearia
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Yoki 400g"
+    alternate_brands: ["Kisabor 400g"]
+    typical_qty: 2
+    unit: un
+    package_size: "400g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "flocão de milho"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Dona Clara 500g"
+    alternate_brands: ["Da Terrinha 500g", "Maratá 500g"]
+    typical_qty: 1
+    unit: un
+    package_size: "500g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "sal refinado"
+    category: mercearia
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Cisne 1kg"
+    alternate_brands: []
+    typical_qty: 1
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "açúcar cristal"
+    category: mercearia
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "União Cristalçúcar 1kg"
+    alternate_brands: ["Caravelas 1kg"]
+    typical_qty: 2
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "filtro de papel café"
+    category: mercearia
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Melitta 102 C/30"
+    alternate_brands: ["Melitta 103 C/30", "3 Corações 102 C/30"]
+    typical_qty: 1
+    unit: caixa
+    package_size: "C/30"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "café vácuo"
+    category: mercearia
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "3 Corações Vácuo 500g"
+    alternate_brands: ["Melitta Vácuo 500g", "Pilão Vácuo 500g"]
+    typical_qty: 2
+    unit: un
+    package_size: "500g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "3 Corações é preferência; 2 pacotes por pedido"
+
+  - generic: "café solúvel nescafé"
+    category: mercearia
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Nescafé Gold Espresso Intenso Rf 40g"
+    alternate_brands: ["Nescafé Matinal Rf 40g", "Lor Intense Rf 40g"]
+    typical_qty: 2
+    unit: un
+    package_size: "40g (refil)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "cápsula dolce gusto"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Dolce Gusto Lungo C/10"
+    alternate_brands: ["Café Pingado C/10", "Café Matinal C/10", "Caseiro Intenso C/10"]
+    typical_qty: 2
+    unit: caixa
+    package_size: "C/10"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+    notes: "sabores variam; sempre 2 caixas"
+
+  - generic: "achocolatado em pó"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Toddy 700g"
+    alternate_brands: ["Toddy 1,8kg", "Nescau 770g", "Nescau 540g"]
+    typical_qty: 1
+    unit: un
+    package_size: "700g ou 770g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "molho shoyu"
+    category: mercearia
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Sakura 150ml"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "150ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+  - generic: "maionese"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Hellmann's 500g"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "500g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "ketchup"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Hemmer Squeeze 750g"
+    alternate_brands: ["Heinz Picles 397g", "Salsaretti 675g", "Quero 400g"]
+    typical_qty: 1
+    unit: un
+    package_size: "400-750g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "mostarda"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Hemmer Amarela 700g"
+    alternate_brands: ["Cepêra Dijon 190g"]
+    typical_qty: 1
+    unit: un
+    package_size: "700g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "tempero chimichurri"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 300
+    unit: g
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "tempero lemon pepper"
+    category: mercearia
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 300
+    unit: g
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "páprica defumada"
+    category: mercearia
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 300
+    unit: g
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "mix cebola alho salsa"
+    category: mercearia
+    frequency: occasional
+    orders_count: 2/10
+    preferred_brand: null
+    alternate_brands: []
+    typical_qty: 300
+    unit: g
+    package_size: "g (granel)"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "alho frito granel"
+    category: mercearia
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Camanducaia 100g"
+    alternate_brands: []
+    typical_qty: 300
+    unit: g
+    package_size: "g (granel) ou 100g embalado"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "granola"
+    category: mercearia
+    frequency: rare
+    orders_count: 1/10
+    preferred_brand: "Jasmine Maçã e Canela 1kg"
+    alternate_brands: ["Kodilar Maçã e Mel 300g"]
+    typical_qty: 1
+    unit: un
+    package_size: "300g a 1kg"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "mel de abelha"
+    category: mercearia
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Superbom 200g"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "200g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+  - generic: "aveia flocos"
+    category: mercearia
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Quaker 165g"
+    alternate_brands: ["Quaker 450g"]
+    typical_qty: 1
+    unit: un
+    package_size: "165g ou 450g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+# =============================================================================
+# BEBIDAS
+# =============================================================================
+
+  - generic: "água mineral com gás"
+    category: bebidas
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: "Minalba 1,5lt"
+    alternate_brands: ["Bioleve 1,5lt"]
+    typical_qty: 12
+    unit: garrafas
+    package_size: "1,5lt"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Minalba preferida; SEMPRE 12 garrafas (às vezes 24)"
+
+  - generic: "refrigerante bioleve zero limão"
+    category: bebidas
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Bioleve Zero Limão 1,5lt"
+    alternate_brands: []
+    typical_qty: 6
+    unit: garrafas
+    package_size: "1,5lt"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "sempre 6 garrafas; comprado junto com mexerica"
+
+  - generic: "refrigerante bioleve zero mexerica"
+    category: bebidas
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Bioleve Zero Mexerica Com Limão 1,5lt"
+    alternate_brands: ["Bioleve Zero Citrus 1,5lt"]
+    typical_qty: 6
+    unit: garrafas
+    package_size: "1,5lt"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "sempre 6 garrafas; comprado junto com limão"
+
+  - generic: "suco maguary maçã caixinha"
+    category: bebidas
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: "Maguary Fruit Shoot Maçã 150ml"
+    alternate_brands: ["Maguary Fruit Shoot Uva 150ml"]
+    typical_qty: 15
+    unit: caixinhas
+    package_size: "150ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "15-24 caixinhas por pedido; maçã é o principal; às vezes uva junto"
+
+  - generic: "refresco tang"
+    category: bebidas
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Tang"
+    alternate_brands: []
+    typical_qty: 6
+    unit: sachês
+    package_size: "18-20g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "sabores variam (laranja, abacaxi, tangerina, uva, manga); 4-7 sachês"
+
+  - generic: "suco pronto maguary néctar"
+    category: bebidas
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Maguary Néctar Maçã/Laranja 200ml"
+    alternate_brands: []
+    typical_qty: 20
+    unit: un
+    package_size: "200ml"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+# =============================================================================
+# SNACKS E DOCES
+# =============================================================================
+
+  - generic: "bolinho ana maria gotas chocolate"
+    category: snacks
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Ana Maria Gotas De Chocolate 70g"
+    alternate_brands: ["Ana Maria Gotas De Chocolate 35g", "Ana Maria Chocolate 70g"]
+    typical_qty: 10
+    unit: un
+    package_size: "70g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "SEMPRE 10 unidades; formato 70g preferido sobre 35g"
+
+  - generic: "batata palha yoki"
+    category: snacks
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Yoki Extra Fina 190g Emb Economica"
+    alternate_brands: ["Yoki Extra Fina 100g", "Yoki Parmesão 100g", "Yoki 105g"]
+    typical_qty: 2
+    unit: un
+    package_size: "190g (econômica)"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "kit lanchinho elma chips"
+    category: snacks
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Elma Chips Lanchinho Sortido 5un 98g"
+    alternate_brands: []
+    typical_qty: 2
+    unit: kits
+    package_size: "kit 5un/98g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "salgadinhos fofura churrasco"
+    category: snacks
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Fofura Churrasco 60g"
+    alternate_brands: []
+    typical_qty: 4
+    unit: un
+    package_size: "60g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "pipoca microondas"
+    category: snacks
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Da Terrinha C/Sal 85g"
+    alternate_brands: ["Da Terrinha Bacon 85g", "Da Terrinha Manteiga 85g", "Yoki Pop Corn Natural 100g", "Yoki Manteiga Cinema 100g", "Yoki Kitano 100g"]
+    typical_qty: 4
+    unit: un
+    package_size: "85-100g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+    notes: "vários sabores e marcas; ~4-6 unidades"
+
+  - generic: "biscoito club social"
+    category: snacks
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Club Social Original 288g"
+    alternate_brands: ["Club Social Integral 288g"]
+    typical_qty: 1
+    unit: un
+    package_size: "288g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "biscoito bauducco choco biscuit"
+    category: snacks
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Bauducco Choco Biscuit Ao Leite 80g"
+    alternate_brands: []
+    typical_qty: 6
+    unit: un
+    package_size: "80g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "biscoito maizena"
+    category: snacks
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Panco Coco 400g"
+    alternate_brands: ["Panco Chocolate 200g", "Panco Maizena"]
+    typical_qty: 2
+    unit: un
+    package_size: "200-400g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "bolacha maizena / coco — Panco é a mais frequente no histórico"
+
+  - generic: "biscoito oreo"
+    category: snacks
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Oreo Original 144g"
+    alternate_brands: ["Oreo Mini 35g"]
+    typical_qty: 2
+    unit: un
+    package_size: "144g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "biscoito cream cracker"
+    category: snacks
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Adria Folhata 510g Leve+Pague-"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "510g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "confeitos m&ms"
+    category: snacks
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "M&Ms Amendoim"
+    alternate_brands: ["M&Ms Crispy"]
+    typical_qty: 2
+    unit: un
+    package_size: "120-148g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+    notes: "amendoim + crispy juntos"
+
+  - generic: "cereal matinal sucrilhos"
+    category: snacks
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Kellogg's Sucrilhos Leve 800g Pague 690g"
+    alternate_brands: ["Kellogg's Sucrilhos 240g", "Kellogg's Sucrilhos 690g"]
+    typical_qty: 1
+    unit: un
+    package_size: "690g-800g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "cereal matinal nescau"
+    category: snacks
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Nescau 770g"
+    alternate_brands: ["Nescau 540g"]
+    typical_qty: 1
+    unit: un
+    package_size: "770g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "biscoito tostines maçã canela"
+    category: snacks
+    frequency: rare
+    orders_count: 1/10
+    preferred_brand: "Tostines Maçã Canela 160g"
+    alternate_brands: []
+    typical_qty: 5
+    unit: un
+    package_size: "160g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+  - generic: "chocottone bauducco"
+    category: snacks
+    frequency: rare
+    orders_count: 1/10
+    preferred_brand: "Bauducco Chocottone 400g"
+    alternate_brands: ["Bauducco Maxi Avelã 450g"]
+    typical_qty: 1
+    unit: un
+    package_size: "400-450g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+    seasonal: true
+    seasonal_context: "Natal (dezembro)"
+
+  - generic: "creme de avelã nutella"
+    category: snacks
+    frequency: rare
+    orders_count: 1/10
+    preferred_brand: "Nutella Ferrero 350g"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "350g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+    seasonal: true
+    seasonal_context: "Natal (dezembro)"
+
+# =============================================================================
+# CONGELADOS E PRONTOS
+# =============================================================================
+
+  - generic: "batata pré-frita congelada"
+    category: congelados
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Bem Brasil Palito 1,5kg"
+    alternate_brands: ["McCain Palito 1,5kg"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "1,5kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "empanado de frango tekitos"
+    category: congelados
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Seara Tekitos Frango 1kg"
+    alternate_brands: ["Auroggets 275g"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "kibe de carne bovina"
+    category: congelados
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Aurora 500g"
+    alternate_brands: []
+    typical_qty: 2
+    unit: pacote
+    package_size: "500g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+  - generic: "filezinho sassami congelado"
+    category: congelados
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Seara Peito Frango Sassami 1kg"
+    alternate_brands: []
+    typical_qty: 2
+    unit: pacote
+    package_size: "1kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+# =============================================================================
+# LIMPEZA
+# =============================================================================
+
+  - generic: "papel higiênico"
+    category: limpeza
+    frequency: always
+    orders_count: 10/10
+    preferred_brand: "Personal Vip Folha Dupla 30m C/24"
+    alternate_brands: ["Personal Vip Compacto C/16", "Fancy Folha Dupla 20m C/12", "Neve Supreme Folha Tripla C/12"]
+    typical_qty: 2
+    unit: pacotes
+    package_size: "C/16 a C/24 rolos"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Personal Vip é a preferência clara; 2 pacotes por pedido"
+
+  - generic: "papel toalha"
+    category: limpeza
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Social Clean C/2 100fls"
+    alternate_brands: ["Bianco C/2 100fls", "Snob Decore C/2 120fls"]
+    typical_qty: 2
+    unit: rolos
+    package_size: "C/2 100fls"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+
+  - generic: "sabão líquido roupas"
+    category: limpeza
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Omo Lavagem Perfeita 3lt"
+    alternate_brands: ["Omo Refil 900ml", "Brilhante Brilho Ativo 3lt"]
+    typical_qty: 1
+    unit: un
+    package_size: "3lt ou refil 900ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Omo é preferência clara"
+
+  - generic: "lava roupas em pó"
+    category: limpeza
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Brilhante Limpeza Total"
+    alternate_brands: ["Omo Lavagem Perfeita Cx 800g", "Omo 4kg"]
+    typical_qty: 1
+    unit: caixa/pacote
+    package_size: "800g a 4kg"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "tamanho varia conforme promoção"
+
+  - generic: "amaciante concentrado"
+    category: limpeza
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Downy Brisa Intenso 1l"
+    alternate_brands: ["Comfort Original Refil 900ml", "Downy Brisa Suave 500ml"]
+    typical_qty: 1
+    unit: un
+    package_size: "900ml a 1l"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "água sanitária"
+    category: limpeza
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: null
+    alternate_brands: ["Sanol 2l", "Candura 2l", "Fazenda da Esperança 2l", "Suprema 2l"]
+    typical_qty: 1
+    unit: un
+    package_size: "2l"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "qualquer marca 2l; ~1-2un"
+
+  - generic: "desinfetante"
+    category: limpeza
+    frequency: frequent
+    orders_count: 8/10
+    preferred_brand: "Ypê Bak Lavanda 500ml"
+    alternate_brands: ["Sanol Lavanda 2l", "Sanol Lavanda 5l", "Ypê Bak Floral 500ml"]
+    typical_qty: 2
+    unit: un
+    package_size: "500ml a 5l"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Ypê Bak 500ml é o mais frequente; às vezes galão grande Sanol"
+
+  - generic: "saco de lixo banheiro"
+    category: limpeza
+    frequency: always
+    orders_count: 9/10
+    preferred_brand: "Bot C/20"
+    alternate_brands: ["Dover Roll 15l C/60", "Embalixo Az 15l C/100"]
+    typical_qty: 5
+    unit: rolos/pacotes
+    package_size: "15l C/20 a C/60"
+    lactose_free: false
+    rotation: true
+    restock_cycle: monthly
+    notes: "SEMPRE presente; 15l para banheiro; 5-10un por pedido"
+
+  - generic: "saco de lixo geral 50l"
+    category: limpeza
+    frequency: frequent
+    orders_count: 6/10
+    preferred_brand: "Embalixo 50un"
+    alternate_brands: ["Plast Bag 50l C/10", "Dover Roll C/50"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "50l"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "detergente líquido"
+    category: limpeza
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Ypê Clear 500ml"
+    alternate_brands: ["Ypê Coco 500ml", "Limpol Cristal 500ml"]
+    typical_qty: 6
+    unit: un
+    package_size: "500ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "geralmente kit 6un; Ypê preferido"
+
+  - generic: "esponja multiuso"
+    category: limpeza
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Bombril Multiuso"
+    alternate_brands: ["Ypê Multiuso"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "4un"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "luva de borracha"
+    category: limpeza
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Danny Confort Média"
+    alternate_brands: []
+    typical_qty: 2
+    unit: pares
+    package_size: "par"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+  - generic: "rolo de alumínio"
+    category: limpeza
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Lumipam 30x4m"
+    alternate_brands: ["Pratsy 30cm", "Kiko 30x4m"]
+    typical_qty: 2
+    unit: rolos
+    package_size: "30x4m"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+# =============================================================================
+# HIGIENE PESSOAL
+# =============================================================================
+
+  - generic: "shampoo e condicionador infantil"
+    category: higiene
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Pom Pom Camomila 200ml"
+    alternate_brands: ["Pom Pom Suave 200ml"]
+    typical_qty: 2
+    unit: un
+    package_size: "200ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+    notes: "shampoo + condicionador; Pom Pom Camomila é a principal escolha"
+
+  - generic: "shampoo condicionador adulto"
+    category: higiene
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Pantene Kit 350ml+175ml"
+    alternate_brands: []
+    typical_qty: 1
+    unit: kit
+    package_size: "kit"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "protetor diário"
+    category: higiene
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Sym C/Perf C/80 Leve+Pague-"
+    alternate_brands: []
+    typical_qty: 1
+    unit: caixa
+    package_size: "C/80"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "creme dental"
+    category: higiene
+    frequency: occasional
+    orders_count: 3/10
+    preferred_brand: "Oral B 1-2-3 70g"
+    alternate_brands: ["Colgate Tripla Ação 70g C/3"]
+    typical_qty: 2
+    unit: un
+    package_size: "70g"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "toalha umedecida bebê"
+    category: higiene
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Natural Baby Wipes 100un"
+    alternate_brands: ["Personalidade Baby 100un", "Marigold Baby 120un"]
+    typical_qty: 1
+    unit: pacote
+    package_size: "100-120un"
+    lactose_free: false
+    rotation: true
+    restock_cycle: bimonthly
+
+  - generic: "sabonete líquido"
+    category: higiene
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Laevia 1l"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "1l"
+    lactose_free: false
+    rotation: true
+    restock_cycle: occasional
+
+  - generic: "enxaguante bucal"
+    category: higiene
+    frequency: rare
+    orders_count: 1/10
+    preferred_brand: "Colgate Plax 750ml"
+    alternate_brands: []
+    typical_qty: 1
+    unit: un
+    package_size: "750ml"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+  - generic: "hastes flexíveis"
+    category: higiene
+    frequency: rare
+    orders_count: 2/10
+    preferred_brand: "Cotton Line Caixa 75un"
+    alternate_brands: []
+    typical_qty: 2
+    unit: caixas
+    package_size: "75un"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+# =============================================================================
+# PADARIA / PÃES
+# =============================================================================
+
+  - generic: "bisnaguinha"
+    category: padaria
+    frequency: frequent
+    orders_count: 7/10
+    preferred_brand: "Kim Pacote 300g"
+    alternate_brands: ["Seven Boys 300g", "Panco 300g", "Bauducco 260g", "Nutrella Cenoura Mandioquinha 300g"]
+    typical_qty: 4
+    unit: pacotes
+    package_size: "260-300g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: monthly
+    notes: "Kim é preferência; ~4 pacotes"
+
+  - generic: "pão com coco"
+    category: padaria
+    frequency: occasional
+    orders_count: 5/10
+    preferred_brand: "Panco Com Coco 350g"
+    alternate_brands: []
+    typical_qty: 1
+    unit: pacote
+    package_size: "350g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "torrada"
+    category: padaria
+    frequency: occasional
+    orders_count: 4/10
+    preferred_brand: "Marilan Lev Magic Toast Light 110g"
+    alternate_brands: ["Bauducco Tradicional 284g"]
+    typical_qty: 2
+    unit: un
+    package_size: "110-284g"
+    lactose_free: false
+    rotation: false
+    restock_cycle: bimonthly
+
+  - generic: "pão hambúrguer"
+    category: padaria
+    frequency: rare
+    orders_count: 1/10
+    preferred_brand: "Kim Pacote 4un"
+    alternate_brands: ["Kim Gergelim 4un"]
+    typical_qty: 2
+    unit: pacotes
+    package_size: "4un"
+    lactose_free: false
+    rotation: false
+    restock_cycle: occasional
+
+# =============================================================================
+# PADRAO DE COMPRA / CONTEXTO PARA O AGENTE
+# =============================================================================
+shopping_patterns:
+  always_buy_together:
+    - ["linguiça toscana", "linguiça calabresa", "bacon"]
+    - ["refrigerante bioleve zero limão", "refrigerante bioleve zero mexerica"]
+    - ["queijo mussarela fatiado", "presunto fatiado"]
+    - ["molho de tomate sachê", "macarrão parafuso", "macarrão espaguete"]
+    - ["água mineral com gás", "suco maguary maçã caixinha"]
+
+  always_buy_in_volume:
+    - item: "papel higiênico"
+      note: "nunca menos que 1 pacote grande (C/16+)"
+    - item: "suco maguary maçã caixinha"
+      note: "mínimo 15 caixinhas"
+    - item: "água mineral com gás"
+      note: "mínimo 12 garrafas"
+    - item: "atum natural"
+      note: "mínimo 4 latas"
+    - item: "molho de tomate sachê"
+      note: "mínimo 10 sachês"
+    - item: "bolinho ana maria gotas chocolate"
+      note: "sempre 10 unidades"
+    - item: "saco de lixo banheiro"
+      note: "sempre múltiplos pacotes"
+
+  lactose_free_substitution_rules:
+    - "leite → sempre Ninho Levinho Semidesnatado S/Lactose"
+    - "creme de leite → preferir Italac Zero Lactose"
+    - "leite condensado → preferir Italac S/Lactose"
+    - "iogurte → verificar disponibilidade SL antes de sugerir"
+
+  brand_matters_high:
+    - "Ninho Levinho (leite SL)"
+    - "Downy Brisa Intenso (amaciante)"
+    - "Vigor Com Sal (margarina)"
+    - "Coqueiro Natural (atum)"
+    - "3 Corações (café)"
+    - "Omo (sabão líquido)"
+    - "Yoki Extra Fina (batata palha)"
+    - "Personal Vip (papel higiênico)"
+    - "Tang (refresco)"
+    - "Bioleve Zero (refrigerante)"
+    - "Minalba (água com gás)"
+    - "Maguary Fruit Shoot (suco caixinha)"
+    - "Ana Maria (bolinho)"
+    - "Seara (linguiça toscana)"
+
+  brand_matters_low:
+    - "tomate (qualquer)"
+    - "pepino (qualquer)"
+    - "cebola (qualquer)"
+    - "limão (qualquer)"
+    - "banana (qualquer, prata)"
+    - "alho (granel, qualquer)"
+    - "água sanitária (qualquer 2l)"
+    - "presunto fatiado (qualquer)"
+    - "queijo mussarela fatiado (qualquer)"
+    - "frango granel (sem marca)"

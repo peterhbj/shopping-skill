@@ -1,104 +1,68 @@
-# Andorinha Shopping Skill v2.1
+# Andorinha Shopping Skill v3
 
-Automação de lista de compras → carrinho no [andorinhaonline.com.br](https://www.andorinhaonline.com.br).
+Lista de compras → carrinho no [andorinhaonline.com.br](https://www.andorinhaonline.com.br). **Checkout é sempre manual.**
 
-**LLM é opcional.** Por padrão zero chamada de modelo (só regras determinísticas + auto-resolve de ambiguidades).
+Ambiguidades (marca preferida vs oferta ≥15% mais barata) vão para `grok -p`. Sem Claude.
 
-## Setup rápido
+## Setup
 
 ```bash
-cd shopping-skill
 pip install -r requirements.txt
 playwright install chromium
 ```
 
+O Grok Build CLI precisa estar no PATH (`grok --version`) e logado (`grok login`).
+
 ## Uso
 
 ```bash
-# Dry-run (não mexe no carrinho) — recomendado na primeira vez
-python -m orchestrator.main \
-  --list lista-compras.md \
-  --profile perfil-compras.yaml \
-  --report-out relatorio.md \
-  --dry-run
+# Tudo: busca + grok nas dúvidas + adiciona (janela fica aberta)
+python -m orchestrator.main run --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
 
-# Rodar de verdade (abre Chromium, adiciona ao carrinho)
-python -m orchestrator.main \
-  --list lista-compras.md \
-  --profile perfil-compras.yaml \
-  --report-out relatorio.md
+# Só buscar (grava run.json, não clica)
+python -m orchestrator.main plan --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
 
-# Usar Chrome já aberto com remote debugging (CDP)
-python -m orchestrator.main \
-  --list lista-compras.md \
-  --profile perfil-compras.yaml \
-  --cdp
+# Só clicar o que já está decidido em run.json
+python -m orchestrator.main apply --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
 
-# Habilitar LLM só quando quiser gastar token em ambiguidades difíceis
-python -m orchestrator.main \
-  --list lista-compras.md \
-  --profile perfil-compras.yaml \
-  --use-llm
+# Sem grok -p (auto marca preferida)
+python -m orchestrator.main run --list lista-compras.md --profile perfil-compras.yaml --no-llm
+
+# Login no Chromium do Playwright (não é o Chrome normal)
+python -m orchestrator.browser --login
 ```
+
+Perfil persistente: `%TEMP%\andorinha-pw-profile` (Windows) ou `/tmp/andorinha-pw-profile`.
+
+Se o carrinho da corrida anterior ainda tiver item, esvazie antes de um teste. `apply` só dá os cliques que faltam para a qty alvo.
+
+## Lista
+
+```markdown
+- Torrada / maionese          → dois produtos
+- Pipoca microondas: manteiga, só sal, tempero do chef
+- Leite 12                    → 12 unidades
+```
+
+` / ` = outro produto. `Produto: a, b, c` = mesmo generic, três sabores (três linhas no carrinho).
 
 ## Pipeline
 
-1. **Enricher** — lê a lista + `perfil-compras.yaml` (vocabulary, direct_search, products)
-2. **Selector** — regras determinísticas:
-   - filtro lactose (household)
-   - pack optimization (custo/benefício)
-   - preferred brand
-   - dominance de preço (≥15% mais barato → ambiguidade)
-   - rotation / cheapest
-3. **Ambiguity**:
-   - sem `--use-llm` → auto-resolve (preferred ou cheapest)
-   - com `--use-llm` → Claude CLI
-4. **Browser** (Playwright) — busca + `set_qty`
-5. **Report** — markdown com status de cada item
+1. **Enricher** — lista + `perfil-compras.yaml`
+2. **plan** — busca no site + regras (lactose, pack, marca, relevância)
+3. **grok -p** — só se a preferida tiver alternativa ≥15% mais barata/unidade
+4. **apply** — clica `+` e espera ack: card com botão `−` + qty estável (não o número otimista)
+5. **Relatório** — markdown
+
+Itens em kg: em geral 1 clique; o peso você ajusta no site.
 
 ## Estrutura
 
 ```
 shopping-skill/
-├── orchestrator/
-│   ├── main.py
-│   ├── browser.py
-│   ├── enricher.py
-│   ├── selector.py
-│   ├── report.py
-│   └── llm/
-│       ├── adapter.py
-│       └── prompts/resolve_ambiguity.md
+├── orchestrator/          # main, browser, enricher, selector, report, llm/
 ├── scripts/browser_helpers.js
 ├── perfil-compras.yaml
 ├── lista-compras.md
-└── requirements.txt
+└── .grok/skills/andorinha-skill/
 ```
-
-## Notas importantes
-
-- **Checkout é manual.** A skill só monta o carrinho.
-- Itens vendidos por kg (carnes/hortifruti) são adicionados com qty=1 no card; o peso final ainda precisa de ajuste manual no site em alguns casos.
-- Site muda → seletores quebram. O helper usa `.item-product-wrapper` e aria-labels; se o Andorinha mudar o layout, vai precisar de ajuste.
-- Não finaliza pedido e não digita cartão. Só adiciona.
-
-## Grok Build / terminal
-
-Dentro do Grok Build ou qualquer terminal:
-
-```bash
-cd /caminho/para/shopping-skill
-python -m orchestrator.main --list lista-compras.md --profile perfil-compras.yaml --dry-run
-```
-
-Se der erro de display no headless, o Playwright lança Chromium com perfil persistente em `%TEMP%\andorinha-pw-profile` (Windows) ou `/tmp/andorinha-pw-profile` (Unix). O relatório default vai para o mesmo diretório temporário (`andorinha_report.md`).
-
-Para adicionar ao carrinho de verdade, o Chromium do Playwright precisa de sessão logada (é um perfil separado do Chrome normal):
-
-```bash
-python -m orchestrator.browser --login
-```
-
-Faça login na janela que abrir e pressione ENTER no terminal. O cookie fica em `%TEMP%\andorinha-pw-profile` (Windows) ou `/tmp/andorinha-pw-profile` (Unix). Depois rode o orchestrator sem `--dry-run`.
-
-Alternativa: Chrome já logado com `--remote-debugging-port=9222` e a flag `--cdp`.

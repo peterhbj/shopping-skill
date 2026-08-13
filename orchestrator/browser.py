@@ -16,6 +16,7 @@ com await de mutação do DOM entre cada click (timeout configurável).
 
 from __future__ import annotations
 
+import re
 import tempfile
 import time
 import urllib.parse
@@ -27,6 +28,12 @@ from playwright.sync_api import sync_playwright, Page, Browser as PWBrowser
 
 
 HELPERS_PATH = Path(__file__).resolve().parent.parent / "scripts" / "browser_helpers.js"
+
+# URLs de mutação de carrinho (Andorinha/OSuper). Ampliar se o log mostrar outro path.
+_CART_URL_RE = re.compile(
+    r"carrinho|cart|basket|bag|pedido|add-to|addtocart|quantidade|qty|/item",
+    re.I,
+)
 
 
 @dataclass
@@ -224,6 +231,7 @@ class Browser:
 
     def search(self, query: str) -> None:
         # Já usa URL direta (/busca/...), não a barra de pesquisa.
+        self.wait_network_quiet(2500)
         url = f"{self.BASE_URL}/busca/{urllib.parse.quote(query)}"
         print(f"[browser] goto {url}", flush=True)
         prev_url = ""
@@ -251,7 +259,7 @@ class Browser:
     def _wait_for_results(self, timeout_ms: int = 8000) -> None:
         """
         SPA do Andorinha só hidrata os cards depois do JS.
-        Sai cedo se a página disser '0 itens' / 'Encontramos 0'.
+        Não lê o body inteiro: '0 itens' no badge do carrinho abortava buscas válidas.
         """
         selectors = [
             ".item-product-wrapper",
@@ -261,15 +269,6 @@ class Browser:
         ]
         deadline = time.time() + (timeout_ms / 1000.0)
         while time.time() < deadline:
-            # zero results message → abort wait
-            try:
-                body = (self.page.inner_text("body") or "")[:2000].lower()
-                # Não usar "0 itens": o badge do carrinho vazio casa isso e aborta a busca.
-                if "encontramos 0" in body or "nenhum produto" in body:
-                    print("[browser] página indica 0 resultados — skip wait", flush=True)
-                    return
-            except Exception:
-                pass
             for sel in selectors:
                 try:
                     loc = self.page.locator(sel)
@@ -285,7 +284,7 @@ class Browser:
     def _ensure_helpers(self) -> None:
         """Re-injeta helpers caso add_init_script não tenha pegado a página."""
         try:
-            loaded = self.page.evaluate("() => !!window.__ANDORINHA_HELPERS_V3__")
+            loaded = self.page.evaluate("() => !!window.__ANDORINHA_HELPERS_V4__")
         except Exception:
             loaded = False
         if not loaded:
@@ -327,6 +326,23 @@ class Browser:
     def current_qty(self, index: int) -> int:
         return int(self.page.evaluate(f"() => andorinha_get_current_qty({index})"))
 
+    def card_state(self, index: int) -> dict:
+        try:
+            payload = self.page.evaluate(f"() => andorinha_card_state({index})")
+        except Exception as e:
+            return {"error": str(e), "qty": 0, "has_minus": False}
+        return payload if isinstance(payload, dict) else {"qty": 0, "has_minus": False}
+
+    @staticmethod
+    def _looks_like_cart_url(url: str) -> bool:
+        return bool(_CART_URL_RE.search(url or ""))
+
+    def wait_network_quiet(self, timeout_ms: int = 3000) -> None:
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        except Exception:
+            pass
+
     def set_qty(self, index: int, target_qty: int, max_attempts_per_step: int = 8) -> dict:
         """
         Adiciona clicando N vezes e confere se qty/badge mudaram.
@@ -335,84 +351,98 @@ class Browser:
         self._ensure_helpers()
         target_qty = max(1, int(target_qty))
         steps_taken = 0
-
-        try:
-            badge_before = self.cart_badge()
-        except Exception:
-            badge_before = None
-        try:
-            qty_before = self.current_qty(index)
-        except Exception:
-            qty_before = None
+        state0 = self.card_state(index)
+        qty_before = int(state0.get("qty") or 0)
+        already_in_cart = bool(state0.get("has_minus"))
 
         for step in range(target_qty):
-            result = self.page.evaluate(f"() => andorinha_click_increase({index})")
-            steps_taken += 1
-            if isinstance(result, dict) and result.get("error"):
-                print(f"[browser] set_qty step {step+1}/{target_qty} error: {result}", flush=True)
-                self._ensure_helpers()
+            seen: list[tuple[str, int]] = []
+            cart_ok = {"v": False}
+
+            def _on_response(resp) -> None:
+                try:
+                    url = resp.url or ""
+                    status = int(resp.status)
+                    if self._looks_like_cart_url(url):
+                        seen.append((url, status))
+                        if 200 <= status < 300:
+                            cart_ok["v"] = True
+                except Exception:
+                    pass
+
+            self.page.on("response", _on_response)
+            try:
                 result = self.page.evaluate(f"() => andorinha_click_increase({index})")
+                steps_taken += 1
                 if isinstance(result, dict) and result.get("error"):
-                    return {
-                        "success": False,
-                        "final_qty": step,
-                        "target_qty": target_qty,
-                        "steps": steps_taken,
-                        "error": result.get("error"),
-                    }
-            prev = result.get("prev_qty") if isinstance(result, dict) else None
-            if isinstance(prev, int):
-                self._await_qty_mutation(index, prev, max_attempts_per_step)
-            # O card muda na hora (UI otimista); o POST do carrinho chega depois.
-            # Sem pausa extra, o servidor descarta cliques em sequência.
-            settle = max(self.click_settle_ms, 1000)
-            if step == 0:
-                settle = max(settle, 1500)
-            self.page.wait_for_timeout(settle)
+                    print(f"[browser] set_qty step {step+1}/{target_qty} error: {result}", flush=True)
+                    self._ensure_helpers()
+                    result = self.page.evaluate(f"() => andorinha_click_increase({index})")
+                    if isinstance(result, dict) and result.get("error"):
+                        return {
+                            "success": False,
+                            "final_qty": step,
+                            "target_qty": target_qty,
+                            "steps": steps_taken,
+                            "error": result.get("error"),
+                        }
+                prev = result.get("prev_qty") if isinstance(result, dict) else qty_before
+                first_add = step == 0 and not already_in_cart
+                acked = self._wait_cart_ack(
+                    index,
+                    previous_qty=int(prev) if isinstance(prev, int) else qty_before,
+                    first_add=first_add,
+                    cart_ok=cart_ok,
+                    timeout_s=8.0,
+                )
+            finally:
+                try:
+                    self.page.remove_listener("response", _on_response)
+                except Exception:
+                    pass
 
-        self.page.wait_for_timeout(max(self.click_settle_ms, 1500))
+            if seen:
+                sample = ", ".join(f"{s}:{u[:80]}" for u, s in seen[:4])
+                print(f"[browser] cart HTTP: {sample}", flush=True)
+            elif not acked:
+                print("[browser] nenhum HTTP de carrinho visto neste clique", flush=True)
 
+            if not acked:
+                st = self.card_state(index)
+                print(
+                    f"[browser] set_qty SEM ACK index={index} step={step+1}/{target_qty} "
+                    f"qty={st.get('qty')} minus={st.get('has_minus')}",
+                    flush=True,
+                )
+                return {
+                    "success": False,
+                    "final_qty": int(st.get("qty") or step),
+                    "target_qty": target_qty,
+                    "steps": steps_taken,
+                    "error": "sem ack do carrinho (layout/HTTP)",
+                    "rate_limit_pause": True,
+                }
+            already_in_cart = True
+
+        self.wait_network_quiet(3000)
+        st = self.card_state(index)
+        qty_now = int(st.get("qty") or 0)
         try:
             badge = self.cart_badge()
         except Exception:
             badge = None
-        try:
-            qty_now = self.current_qty(index)
-        except Exception:
-            qty_now = None
 
-        badge_grew = (
-            badge_before is not None
-            and badge is not None
-            and badge > badge_before
-        )
-        qty_grew = (
-            qty_now is not None
-            and qty_now > 0
-            and (qty_before is None or qty_now > qty_before)
-        )
-        qty_reached = qty_now is not None and qty_now >= target_qty
-
-        if not (badge_grew or qty_grew or qty_reached):
-            print(
-                f"[browser] set_qty SEM EFEITO index={index} clicks={steps_taken} "
-                f"qty {qty_before}→{qty_now} badge {badge_before}→{badge}",
-                flush=True,
-            )
+        if not st.get("has_minus") and qty_now < target_qty:
             return {
                 "success": False,
-                "final_qty": qty_now if qty_now is not None else 0,
+                "final_qty": qty_now,
                 "target_qty": target_qty,
                 "steps": steps_taken,
                 "badge": badge,
-                "error": "cliques não alteraram carrinho/qty (login? seletor?)",
+                "error": "card não entrou no modo carrinho (− qty +)",
             }
-
-        if qty_now is not None and 0 < qty_now < target_qty and not badge_grew:
-            print(
-                f"[browser] set_qty PARCIAL index={index} qty={qty_now}/{target_qty}",
-                flush=True,
-            )
+        if qty_now and 0 < qty_now < target_qty:
+            print(f"[browser] set_qty PARCIAL index={index} qty={qty_now}/{target_qty}", flush=True)
             return {
                 "success": False,
                 "final_qty": qty_now,
@@ -424,12 +454,12 @@ class Browser:
 
         print(
             f"[browser] set_qty done index={index} clicks={steps_taken} "
-            f"target={target_qty} qty={qty_now} badge={badge}",
+            f"target={target_qty} qty={qty_now} minus={st.get('has_minus')} badge={badge}",
             flush=True,
         )
         return {
             "success": True,
-            "final_qty": qty_now if qty_now is not None else target_qty,
+            "final_qty": qty_now if qty_now else target_qty,
             "target_qty": target_qty,
             "steps": steps_taken,
             "badge": badge,
@@ -457,16 +487,38 @@ class Browser:
         return None
 
 
-    def _await_qty_mutation(
-        self, index: int, previous_qty: int, max_attempts: int
-    ) -> None:
-        """Polling: aguarda current_qty mudar (até timeout). Resolve debounce."""
-        deadline = time.time() + (self.click_settle_ms / 1000.0) * max_attempts
+    def _wait_cart_ack(
+        self,
+        index: int,
+        previous_qty: int,
+        first_add: bool,
+        cart_ok: dict,
+        timeout_s: float = 8.0,
+    ) -> bool:
+        """
+        Ack = card no modo stepper (has_minus) + qty estável em 2 leituras.
+        HTTP 2xx de URL de carrinho confirma; sem ele ainda aceita layout estável.
+        """
+        deadline = time.time() + timeout_s
+        last_qty: int | None = None
         while time.time() < deadline:
-            if self.current_qty(index) != previous_qty:
-                return
-            time.sleep(self.click_settle_ms / 1000.0 / 3)
-        # timeout silencioso — set_qty fará nova iteração ou abortará
+            st = self.card_state(index)
+            qty = int(st.get("qty") or 0)
+            has_minus = bool(st.get("has_minus"))
+            if first_add:
+                layout_ok = has_minus
+                qty_ok = qty >= 1
+            else:
+                layout_ok = has_minus
+                qty_ok = qty > previous_qty
+            if layout_ok and qty_ok and last_qty == qty:
+                return True
+            last_qty = qty
+            time.sleep(0.3)
+        st = self.card_state(index)
+        if bool(st.get("has_minus")) and int(st.get("qty") or 0) > previous_qty:
+            return bool(cart_ok.get("v"))
+        return False
 
     def open_cart(self) -> None:
         self.page.evaluate("() => andorinha_open_cart()")

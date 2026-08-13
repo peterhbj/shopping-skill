@@ -271,6 +271,9 @@ def run(
                             extra_notes=[f"set_qty falhou: {set_result.get('error', '?')}"],
                         )
                     )
+                    if set_result.get("rate_limit_pause"):
+                        print("[main] sem ack — pausa 4s antes do próximo item", flush=True)
+                        b.page.wait_for_timeout(4000)
                     continue
                 # Folga para o carrinho gravar no servidor antes da próxima busca.
                 b.page.wait_for_timeout(800)

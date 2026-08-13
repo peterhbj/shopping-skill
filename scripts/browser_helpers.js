@@ -7,7 +7,8 @@
  */
 
 (() => {
-  if (window.__ANDORINHA_HELPERS_V3__) return;
+  if (window.__ANDORINHA_HELPERS_V4__) return;
+  window.__ANDORINHA_HELPERS_V4__ = true;
   window.__ANDORINHA_HELPERS_V3__ = true;
   window.__ANDORINHA_HELPERS_V2__ = true;
 
@@ -232,6 +233,19 @@
   window.andorinha_get_current_qty = function (index) {
     const card = _cards()[index];
     return card ? _readQtyInCard(card) : 0;
+  };
+
+  window.andorinha_card_state = function (index) {
+    const card = _cards()[index];
+    if (!card) return { error: "no_card", index };
+    const btns = _findButtons(card);
+    return {
+      index,
+      qty: _readQtyInCard(card),
+      has_add: !!btns.add,
+      has_plus: !!btns.plus,
+      has_minus: !!btns.minus,
+    };
   };
 
   window.andorinha_click_increase = function (index) {

@@ -33,7 +33,7 @@ from .llm.adapter import (
     LLMCallError,
     render_ambiguity_prompt,
 )
-from .report import ItemReport, render_report
+from .report import ItemReport, reconcile_with_cart, render_report
 from .selector import (
     Ambiguity,
     Decision,
@@ -317,25 +317,35 @@ def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) ->
         total_cost=float(planned.get("total_cost") or 0),
         notes=list(planned.get("notes") or []),
     )
-    if need == 0 and state.get("has_minus"):
+    unit = planned.get("unit") or item.get("unit")
+    if need == 0 and (state.get("has_minus") or current > 0):
         decision.notes.append("já no alvo — sem clique extra")
-        return _decision_to_report(raw, decision, qty, planned.get("status") or "ok")
+        return _decision_to_report(
+            raw, decision, qty, planned.get("status") or "ok", unit=unit
+        )
     try:
         set_result = b.set_qty(chosen.index, need)
-        if not set_result.get("success"):
-            extra = [f"set_qty falhou: {set_result.get('error', '?')}"]
-            if set_result.get("rate_limit_pause"):
-                print("[main] sem ack — pausa 4s antes do próximo item", flush=True)
-                b.page.wait_for_timeout(4000)
+        if set_result.get("rate_limit_pause"):
+            print("[main] ack incompleto — pausa 4s", flush=True)
+            b.page.wait_for_timeout(4000)
+        if not set_result.get("success") and set_result.get("error") == "no_button":
             return _decision_to_report(
-                raw, decision, qty, "failed_to_add", extra_notes=extra
+                raw, decision, qty, "failed_to_add",
+                extra_notes=[f"set_qty: {set_result.get('error')}"],
+                unit=unit,
             )
+        if not set_result.get("success"):
+            decision.notes.append(f"ack do card falhou ({set_result.get('error')}); conferir no carrinho")
         b.page.wait_for_timeout(800)
     except Exception as e:
         return _decision_to_report(
-            raw, decision, qty, "failed_to_add", extra_notes=[f"exceção set_qty: {e}"]
+            raw, decision, qty, "failed_to_add",
+            extra_notes=[f"exceção set_qty: {e}"],
+            unit=unit,
         )
-    return _decision_to_report(raw, decision, qty, planned.get("status") or "ok")
+    return _decision_to_report(
+        raw, decision, qty, planned.get("status") or "ok", unit=unit
+    )
 
 
 def run(
@@ -364,7 +374,7 @@ def run(
     )
 
     config, raw_cfg = _load_config(profile_path)
-    llm_model = str(raw_cfg.get("llm_model", "grok-build"))
+    llm_model = str(raw_cfg.get("llm_model") or "grok-4.6")
     llm_timeout = int(raw_cfg.get("llm_timeout_s", 120))
     browser_cfg = raw_cfg.get("browser", {}) or {}
     cdp_url = str(browser_cfg.get("cdp_url", "http://localhost:9222"))
@@ -380,6 +390,8 @@ def run(
 
     item_reports: list[ItemReport] = []
     do_click = command == "apply" or (command == "run" and not dry_run)
+    cart_lines_count: int | None = None
+    cart_matched: int | None = None
 
     print(f"[main] Conectando browser (click={do_click}, launch_own={launch_own})", flush=True)
     try:
@@ -479,7 +491,7 @@ def run(
                     item_reports.append(
                         _decision_to_report(
                             planned.get("raw") or "", d, planned.get("qty") or 1,
-                            status, dry_run=True,
+                            status, dry_run=True, unit=planned.get("unit"),
                         )
                     )
                 else:
@@ -504,6 +516,14 @@ def run(
                 )
                 item_reports.append(_apply_one(b, planned, item or {}, config))
 
+            cart_lines: list[dict] = []
+            try:
+                cart_lines = b.read_cart_lines()
+            except Exception as e:
+                print(f"[main] scrape do carrinho falhou: {e}", flush=True)
+            item_reports, cart_matched = reconcile_with_cart(item_reports, cart_lines)
+            cart_lines_count = len(cart_lines)
+
         try:
             badge_after = b.cart_badge()
         except Exception:
@@ -518,6 +538,8 @@ def run(
         cart_badge_before=badge_before,
         cart_badge_after=badge_after,
         elapsed_s=elapsed,
+        cart_lines_count=cart_lines_count if do_click else None,
+        cart_matched=cart_matched if do_click else None,
     )
     report_out.write_text(report_md, encoding="utf-8")
     print(f"[main] Relatório salvo em {report_out} ({elapsed:.1f}s total)", flush=True)
@@ -531,6 +553,7 @@ def _decision_to_report(
     status: str,
     dry_run: bool = False,
     extra_notes: list[str] | None = None,
+    unit: str | None = None,
 ) -> ItemReport:
     notes = list(d.notes)
     if dry_run:
@@ -548,14 +571,17 @@ def _decision_to_report(
         unit_price=d.price_num,
         total_cost=d.total_cost,
         notes=notes,
+        unit=unit,
     )
 
 
-def _blank_report(raw: str, status: str, notes: list[str], qty_target) -> ItemReport:
+def _blank_report(
+    raw: str, status: str, notes: list[str], qty_target, unit: str | None = None
+) -> ItemReport:
     return ItemReport(
         raw=raw, status=status, chosen_name=None, chosen_index=None, rule=None,
         qty_target=qty_target, packs_added=0, unit_price=0.0, total_cost=0.0,
-        notes=notes,
+        notes=notes, unit=unit,
     )
 
 

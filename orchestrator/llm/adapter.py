@@ -71,7 +71,12 @@ class GrokCLIAdapter(LLMAdapter):
         extra_args: Optional[list[str]] = None,
         grok_bin: Optional[str] = None,
     ):
-        self.model = model if model and model not in ("haiku", "sonnet", "opus") else None
+        allowed = {"grok-4.6", "grok-4.5"}
+        if model in allowed:
+            self.model = model
+        else:
+            # default do CLI (hoje: grok-4.6). Não passar -m grok-build.
+            self.model = None
         self.timeout = timeout_s
         self.extra_args = extra_args or []
         self.grok_bin = grok_bin or self._resolve_grok_bin()

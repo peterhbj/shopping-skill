@@ -284,7 +284,7 @@ class Browser:
     def _ensure_helpers(self) -> None:
         """Re-injeta helpers caso add_init_script não tenha pegado a página."""
         try:
-            loaded = self.page.evaluate("() => !!window.__ANDORINHA_HELPERS_V4__")
+            loaded = self.page.evaluate("() => !!window.__ANDORINHA_HELPERS_V5__")
         except Exception:
             loaded = False
         if not loaded:
@@ -410,16 +410,18 @@ class Browser:
             if not acked:
                 st = self.card_state(index)
                 print(
-                    f"[browser] set_qty SEM ACK index={index} step={step+1}/{target_qty} "
+                    f"[browser] set_qty SEM ACK no card (kg/granel é normal) "
+                    f"index={index} step={step+1}/{target_qty} "
                     f"qty={st.get('qty')} minus={st.get('has_minus')}",
                     flush=True,
                 )
+                # Não marca falha: granel não tem stepper. Veredito = scrape do carrinho.
                 return {
-                    "success": False,
-                    "final_qty": int(st.get("qty") or step),
+                    "success": True,
+                    "final_qty": int(st.get("qty") or steps_taken),
                     "target_qty": target_qty,
                     "steps": steps_taken,
-                    "error": "sem ack do carrinho (layout/HTTP)",
+                    "error": "sem ack de layout (seguir; conferir carrinho)",
                     "rate_limit_pause": True,
                 }
             already_in_cart = True
@@ -431,26 +433,6 @@ class Browser:
             badge = self.cart_badge()
         except Exception:
             badge = None
-
-        if not st.get("has_minus") and qty_now < target_qty:
-            return {
-                "success": False,
-                "final_qty": qty_now,
-                "target_qty": target_qty,
-                "steps": steps_taken,
-                "badge": badge,
-                "error": "card não entrou no modo carrinho (− qty +)",
-            }
-        if qty_now and 0 < qty_now < target_qty:
-            print(f"[browser] set_qty PARCIAL index={index} qty={qty_now}/{target_qty}", flush=True)
-            return {
-                "success": False,
-                "final_qty": qty_now,
-                "target_qty": target_qty,
-                "steps": steps_taken,
-                "badge": badge,
-                "error": f"qty ficou em {qty_now}, alvo {target_qty}",
-            }
 
         print(
             f"[browser] set_qty done index={index} clicks={steps_taken} "
@@ -521,7 +503,28 @@ class Browser:
         return False
 
     def open_cart(self) -> None:
-        self.page.evaluate("() => andorinha_open_cart()")
+        self._ensure_helpers()
+        try:
+            self.page.evaluate("() => andorinha_open_cart()")
+        except Exception as e:
+            print(f"[browser] open_cart: {e}", flush=True)
+        self.page.wait_for_timeout(900)
+
+    def read_cart_lines(self) -> list[dict]:
+        self.open_cart()
+        self._ensure_helpers()
+        try:
+            payload = self.page.evaluate("() => andorinha_get_cart_lines()")
+        except Exception as e:
+            print(f"[browser] read_cart_lines: {e}", flush=True)
+            return []
+        if not isinstance(payload, dict):
+            return []
+        lines = payload.get("lines") or []
+        print(f"[browser] cart lines → {len(lines)} (url={payload.get('url')})", flush=True)
+        if lines:
+            print(f"[browser]   [0] {str(lines[0].get('name', ''))[:60]!r} qty={lines[0].get('qty')}", flush=True)
+        return lines
 
 
 # =============================================================================

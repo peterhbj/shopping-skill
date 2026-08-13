@@ -50,7 +50,7 @@ config:
   dominance_threshold_pct: 15      # alternativa precisa ser ≥X% mais barata/unit pra escalar p/ LLM
   pack_optimization: true          # tentar combinar embalagens menores se reduzir custo total
   max_packs_per_item: 6            # teto só no pack-opt (ceil(qty/unit_count)); qty explícita da lista não é cortada
-  llm_model: "grok-build"          # grok -p (não é mais Claude haiku)
+  llm_model: "grok-4.6"            # ids válidos: grok-4.6 (default), grok-4.5
   llm_timeout_s: 120               # timeout do subprocess `claude -p` (10s overhead + ~10s/call)
   enrichment:
     match_threshold: 0.55          # fuzzy match score mínimo (difflib) — 0.45 gerava Maizena→Oreo

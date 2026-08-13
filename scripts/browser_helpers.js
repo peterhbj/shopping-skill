@@ -7,7 +7,8 @@
  */
 
 (() => {
-  if (window.__ANDORINHA_HELPERS_V4__) return;
+  if (window.__ANDORINHA_HELPERS_V5__) return;
+  window.__ANDORINHA_HELPERS_V5__ = true;
   window.__ANDORINHA_HELPERS_V4__ = true;
   window.__ANDORINHA_HELPERS_V3__ = true;
   window.__ANDORINHA_HELPERS_V2__ = true;
@@ -313,5 +314,55 @@ window.andorinha_click_decrease = function (index) {
     if (!btn) return { error: 'cart_btn_not_found' };
     btn.click();
     return { ok: true };
+  };
+
+  window.andorinha_get_cart_lines = function () {
+    const roots = [
+      document.querySelector('[class*="cart-drawer"]'),
+      document.querySelector('[class*="CartDrawer"]'),
+      document.querySelector('[class*="mini-cart"]'),
+      document.querySelector('[class*="minicart"]'),
+      document.querySelector('[id*="cart-drawer"]'),
+      document.querySelector("aside"),
+      document.querySelector('[role="dialog"]'),
+      document.body,
+    ].filter(Boolean);
+
+    const itemSels = [
+      "[class*='cart-item']",
+      "[class*='CartItem']",
+      "[class*='item-cart']",
+      "[class*='minicart-item']",
+      "[data-cart-item]",
+    ];
+
+    let nodes = [];
+    for (const root of roots) {
+      for (const sel of itemSels) {
+        const found = root.querySelectorAll(sel);
+        if (found.length) {
+          nodes = Array.from(found);
+          break;
+        }
+      }
+      if (nodes.length) break;
+    }
+
+    function lineFrom(el) {
+      const img = el.querySelector("img");
+      let name = img && img.alt ? img.alt.trim() : "";
+      const leaves = Array.from(el.querySelectorAll("*")).filter(
+        (e) => e.childElementCount === 0 && (e.textContent || "").trim()
+      );
+      const texts = leaves.map((e) => e.textContent.trim());
+      if (!name) {
+        name = texts.find((t) => t.length > 8 && !/^R\$/.test(t) && !/^\d+$/.test(t)) || "";
+      }
+      const qtyHit = texts.find((t) => /^\d+$/.test(t) && +t >= 1 && +t <= 99 && +t !== 360);
+      return { name, name_lower: name.toLowerCase(), qty: qtyHit ? parseInt(qtyHit, 10) : 1 };
+    }
+
+    const lines = nodes.map(lineFrom).filter((l) => l.name);
+    return { count: lines.length, lines, url: location.href };
   };
 })();

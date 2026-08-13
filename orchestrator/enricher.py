@@ -44,10 +44,28 @@ _OU_PREFIX_RE = re.compile(r"^ou\s+", re.IGNORECASE)
 _QTY_SUFFIX_RE = re.compile(r"^(.*?)\s+(\d+)\s*$")
 
 
-def parse_list_file(path: Path) -> list[str]:
-    """Lê arquivo MD/TXT e retorna lista de itens raw, um por linha."""
+def _expand_flavors(part: str) -> list[tuple[str, str | None]]:
+    """
+    'Pipoca microondas: manteiga, só sal, tempero do chef'
+    → três pares (base, flavor). Sem ':' ou sem lista → um item.
+    """
+    if ":" not in part:
+        return [(part, None)]
+    left, right = part.split(":", 1)
+    left = left.strip()
+    flavors = [f.strip() for f in right.split(",") if f.strip()]
+    if not left or not flavors:
+        return [(part, None)]
+    # Um único rótulo longo depois de ':' (ex. horário) não é lista de sabores.
+    if len(flavors) == 1 and len(flavors[0].split()) > 4:
+        return [(part, None)]
+    return [(left, f) for f in flavors]
+
+
+def parse_list_file(path: Path) -> list[tuple[str, str | None]]:
+    """Lê MD/TXT. Cada item é (texto, flavor|None)."""
     text = path.read_text(encoding="utf-8")
-    raw_items: list[str] = []
+    raw_items: list[tuple[str, str | None]] = []
 
     for line in text.splitlines():
         original = line.strip()
@@ -76,17 +94,16 @@ def parse_list_file(path: Path) -> list[str]:
         for part in parts:
             if _OU_PREFIX_RE.match(part):
                 continue
-            raw_items.append(part)
+            raw_items.extend(_expand_flavors(part))
 
-    # "Nescafé / requeijão" não deve republicar um item já listado sozinho.
     seen: set[str] = set()
-    unique: list[str] = []
-    for raw in raw_items:
-        key = normalize(extract_qty_from_raw(raw)[0])
+    unique: list[tuple[str, str | None]] = []
+    for raw, flavor in raw_items:
+        key = normalize(extract_qty_from_raw(raw)[0]) + "|" + normalize(flavor or "")
         if not key or key in seen:
             continue
         seen.add(key)
-        unique.append(raw)
+        unique.append((raw, flavor))
     return unique
 
 
@@ -181,6 +198,7 @@ class EnrichedItem:
     kb_matched: bool
     match_score: float
     notes: list[str]
+    flavor: str | None = None
 
 
 def _clean_brand_for_search(brand: str) -> str:
@@ -363,11 +381,19 @@ def enrich_list(list_path: Path, profile_path: Path) -> dict[str, Any]:
     )
 
     raw_items = parse_list_file(list_path)
-    enriched = [
-        enrich_item(r, products, vocabulary, direct_search, threshold)
-        for r in raw_items
-        if r.strip()
-    ]
+    enriched: list[EnrichedItem] = []
+    for raw, flavor in raw_items:
+        if not raw.strip():
+            continue
+        item = enrich_item(raw, products, vocabulary, direct_search, threshold)
+        item.flavor = flavor
+        if flavor:
+            item.raw = f"{item.raw} ({flavor})"
+            extra = flavor.strip()
+            if extra.lower() not in item.search_term.lower():
+                item.search_term = f"{item.search_term} {extra}".strip()
+            item.notes = list(item.notes) + [f"sabor: {flavor}"]
+        enriched.append(item)
     matched = sum(1 for i in enriched if i.kb_matched)
 
     return {

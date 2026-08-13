@@ -482,6 +482,25 @@ def _filter_relevant(
         ):
             continue
 
+        flavor = (enriched_item.get("flavor") or "").lower()
+        if flavor:
+            flavor_toks = [t for t in re.split(r"\W+", flavor) if len(t) >= 3]
+            rivals = []
+            if any(x in flavor for x in ("manteiga", "butter")):
+                rivals += ["chef", "bacon"]
+            elif re.search(r"\bsal\b", flavor) or "natural" in flavor:
+                rivals += ["manteiga", "butter", "bacon", "chef"]
+            elif "chef" in flavor or "tempero" in flavor:
+                rivals += ["manteiga", "butter"]
+            if any(x in flavor for x in ("limao", "limão")):
+                rivals += ["mexerica", "laranja", "citrus"]
+            elif "mexerica" in flavor:
+                rivals += ["limao", "limão"]
+            if rivals and any(r in name for r in rivals):
+                continue
+            if flavor_toks and not any(t in name for t in flavor_toks):
+                continue
+
         if keywords and not any(k in name for k in keywords):
             continue
         if core and not any(k in name for k in core):

@@ -17,16 +17,16 @@ O Grok Build CLI precisa estar no PATH (`grok --version`) e logado (`grok login`
 
 ```bash
 # Tudo: busca + grok nas dúvidas + adiciona (janela fica aberta)
-python -m orchestrator.main run --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
+python -m orchestrator.main run --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
 
 # Só buscar (grava run.json, não clica)
-python -m orchestrator.main plan --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
+python -m orchestrator.main plan --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
 
 # Só clicar o que já está decidido em run.json
-python -m orchestrator.main apply --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
+python -m orchestrator.main apply --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
 
 # Sem grok -p (auto marca preferida)
-python -m orchestrator.main run --list lista-compras.md --profile perfil-compras.yaml --no-llm
+python -m orchestrator.main run --list lista-compras.md --profile preferencias.yaml --no-llm
 
 # Login no Chromium do Playwright (não é o Chrome normal)
 python -m orchestrator.browser --login
@@ -48,7 +48,7 @@ Se o carrinho da corrida anterior ainda tiver item, esvazie antes de um teste. `
 
 ## Pipeline
 
-1. **Enricher** — lista + `perfil-compras.yaml`
+1. **Enricher** — lista + `preferencias.yaml` (apelidos + marcas)
 2. **plan** — busca no site + regras (lactose, pack, marca, relevância)
 3. **grok -p** — só se a preferida tiver alternativa ≥15% mais barata/unidade
 4. **apply** — clica `+` e espera ack: card com botão `−` + qty estável (não o número otimista)
@@ -62,7 +62,7 @@ Itens em kg: em geral 1 clique; o peso você ajusta no site.
 shopping-skill/
 ├── orchestrator/          # main, browser, enricher, selector, report, llm/
 ├── scripts/browser_helpers.js
-├── perfil-compras.yaml
+├── preferencias.yaml
 ├── lista-compras.md
 └── .grok/skills/andorinha-skill/
 ```

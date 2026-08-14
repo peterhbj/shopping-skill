@@ -1,0 +1,49 @@
+# Preferências curtas. A lista manda o quê e quanto.
+# Se o script errar a marca, acrescente uma linha em marcas ou apelidos.
+
+sem_lactose: true
+
+apelidos:
+  oleo normal: óleo de soja
+  feijao normal: feijão carioca
+  linguica fresca: linguiça toscana
+  linguica defumada: linguiça calabresa
+  danone: iogurte
+  suquinho: suco caixinha
+  lanches das criancas: lanchinho elma chips
+  lanches criancas: lanchinho elma chips
+  bife: patinho
+  bifé: patinho
+  carne de panela: acém
+  saco de lixo: saco de lixo 50l
+  saco de lixo lixeira grande: saco de lixo 50l
+  sobre coxa com coxa: coxa sobrecoxa
+  file de frango: peito de frango
+  luva p: luva de borracha p
+  couve: couve manteiga
+  ovo: ovos
+  pao: bisnaguinha
+  candida: água sanitária
+  agua: água mineral
+
+marcas:
+  arroz: Camil
+  cafe: 3 Corações
+  leite: Ninho Levinho
+  atum: Coqueiro
+  papel higienico: Personal Vip
+  papel toalha: Social Clean
+  refri: Bioleve
+  pipoca: Yoki
+  farofa: Yoki
+  queijo ralado: Vigor
+  bisnaguinha: Kim
+  acucar: União
+
+config:
+  llm_model: grok-4.6
+  llm_timeout_s: 120
+  dominance_threshold_pct: 15
+  browser:
+    click_settle_ms: 1200
+    nav_timeout_ms: 15000

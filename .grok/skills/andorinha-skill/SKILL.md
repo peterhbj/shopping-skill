@@ -6,7 +6,8 @@ description: >
 
 # Andorinha shopping advisor
 
-Repo root = pasta com `lista-compras.md`, `perfil-compras.yaml` e `orchestrator/`.
+Repo root = pasta com `lista-compras.md`, `preferencias.yaml` e `orchestrator/`.
+Preferências são curtas: `apelidos` + `marcas` + `sem_lactose`. Qty vem da lista (`Sal (2)`). O YAML enorme (`perfil-compras.yaml`) é arquivo morto.
 
 ## Hard rules
 
@@ -25,9 +26,9 @@ Repo root = pasta com `lista-compras.md`, `perfil-compras.yaml` e `orchestrator/
 ## Commands
 
 ```bash
-python -m orchestrator.main plan --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
-python -m orchestrator.main apply --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
-python -m orchestrator.main run --list lista-compras.md --profile perfil-compras.yaml --report-out relatorio.md
+python -m orchestrator.main plan --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
+python -m orchestrator.main apply --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
+python -m orchestrator.main run --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
 ```
 
 `plan` only searches (writes `run.json`). `apply` only clicks decided rows. `run` = plan + grok -p + apply.

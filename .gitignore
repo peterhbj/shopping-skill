@@ -8,6 +8,7 @@ enriched-preview.json
 run.json
 relatorio.md
 relatorio-simulacao.md
+*.bak
 .playwright/
 andorinha-pw-profile/
 *.pyc

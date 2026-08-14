@@ -37,11 +37,13 @@ import yaml
 # =============================================================================
 
 _BULLET_RE = re.compile(r"^[-*•]\s+")
+_CHECKBOX_RE = re.compile(r"^[-*•]\s+\[(?: |x|X)\]\s+(.*)$")
 _BOLD_HEADER_RE = re.compile(r"^\*\*.*\*\*\s*$")
 _EMOJI_RE = re.compile(r"[\U00010000-\U0010FFFF]")
 _BOLD_INLINE_RE = re.compile(r"\*+([^*]+)\*+")
 _OU_PREFIX_RE = re.compile(r"^ou\s+", re.IGNORECASE)
 _QTY_SUFFIX_RE = re.compile(r"^(.*?)\s+(\d+)\s*$")
+_QTY_PAREN_RE = re.compile(r"^(.*?)\s*\((\d+)\)\s*$")
 
 
 def _expand_flavors(part: str) -> list[tuple[str, str | None]]:
@@ -73,8 +75,13 @@ def parse_list_file(path: Path) -> list[tuple[str, str | None]]:
             continue
         if _BOLD_HEADER_RE.match(original):
             continue
-        had_bullet = bool(_BULLET_RE.match(original))
-        line = _BULLET_RE.sub("", original).strip()
+        checkbox = _CHECKBOX_RE.match(original)
+        if checkbox:
+            had_bullet = True
+            line = checkbox.group(1).strip()
+        else:
+            had_bullet = bool(_BULLET_RE.match(original))
+            line = _BULLET_RE.sub("", original).strip()
         if not line:
             continue
         if not had_bullet:
@@ -108,14 +115,21 @@ def parse_list_file(path: Path) -> list[tuple[str, str | None]]:
 
 
 def extract_qty_from_raw(raw: str) -> tuple[str, int | None]:
-    """'Leite 12' → ('Leite', 12). 'Queijo ralado' → ('Queijo ralado', None)."""
-    m = _QTY_SUFFIX_RE.match(raw.strip())
+    """'Leite 12' → ('Leite', 12). 'Sal (2)' → ('Sal', 2). 'Saco (grande)' não é qty."""
+    text = raw.strip()
+    m = _QTY_PAREN_RE.match(text)
     if m:
         item_text = m.group(1).strip()
         qty = int(m.group(2))
         if item_text and 1 <= qty <= 100:
             return item_text, qty
-    return raw.strip(), None
+    m = _QTY_SUFFIX_RE.match(text)
+    if m:
+        item_text = m.group(1).strip()
+        qty = int(m.group(2))
+        if item_text and 1 <= qty <= 100:
+            return item_text, qty
+    return text, None
 
 
 # =============================================================================
@@ -249,114 +263,55 @@ def _build_search_term(generic: str, preferred_brand: str | None, rotation: bool
     return f"{generic} {' '.join(extra)}".strip()
 
 
-def enrich_item(
-    raw: str,
-    products: list[dict],
-    vocabulary: dict[str, str],
-    direct_search: dict[str, dict],
-    match_threshold: float,
-) -> EnrichedItem:
+_WEIGHT_HINTS = (
+    "patinho", "acem", "carne", "peito", "frango", "coxa", "asa", "bacon",
+    "linguica", "pernil", "bisteca", "tomate", "cebola", "pepino", "alho",
+    "cenoura", "abobrinha", "batata", "banana", "maca", "laranja", "manga",
+    "melao", "uva", "couve",
+)
+
+_DAIRY_HINTS = ("leite", "requeijao", "iogurte", "creme de leite", "danone")
+
+
+def enrich_item(raw: str, prefs: dict[str, Any]) -> EnrichedItem:
     item_text, qty_from_raw = extract_qty_from_raw(raw)
-    item_for_match = re.sub(r"\(.*?\)", "", item_text).strip()
+    item_for_match = re.sub(r"\(.*?\)", "", item_text).strip() or item_text
     norm_key = normalize(item_for_match)
 
-    # 1) direct_search override
-    direct = direct_search.get(norm_key) or direct_search.get(
-        item_for_match.lower().strip()
-    )
-    if direct:
-        notes = list(direct.get("notes", [])) + ["busca direta"]
-        unit = direct.get("unit") or (
-            "kg" if any(k in norm_key for k in ("suino", "copa", "bisteca")) else "un"
-        )
-        qty = qty_from_raw or direct.get("qty") or 1
-        return EnrichedItem(
-            raw=raw,
-            item_text=item_text,
-            qty_from_raw=qty_from_raw,
-            qty=qty,
-            unit=unit,
-            generic=direct.get("generic"),
-            category=direct.get("category"),
-            search_term=direct["search"],
-            preferred_brand=direct.get("preferred_brand"),
-            lactose_free=bool(direct.get("lactose_free", False)),
-            rotation=bool(direct.get("rotation", False)),
-            kb_matched=bool(direct.get("kb_matched", False)),
-            match_score=1.0 if direct.get("kb_matched") else 0.0,
-            notes=notes,
-        )
+    apelidos = {normalize(k): v for k, v in (prefs.get("apelidos") or {}).items()}
+    generic = apelidos.get(norm_key) or item_for_match
+    marcas = {normalize(k): v for k, v in (prefs.get("marcas") or {}).items()}
+    brand = marcas.get(normalize(generic)) or marcas.get(norm_key)
+    rotation = not bool(brand)
+    search_term = _build_search_term(generic, brand, rotation)
 
-    # 2) Fuzzy KB match
-    kb_product, score = find_best_kb_match(item_for_match, products, vocabulary)
-    kb_matched = kb_product is not None and score >= match_threshold
-
-    if not kb_matched:
-        notes = [f"item não encontrado no KB (score={score:.2f})"]
-        if "(" in raw and ")" in raw:
-            m = re.search(r"\(.*?\)", raw)
-            if m:
-                notes.append(f"nota original: {m.group()}")
-        return EnrichedItem(
-            raw=raw,
-            item_text=item_text,
-            qty_from_raw=qty_from_raw,
-            qty=qty_from_raw or 1,
-            unit="un",
-            generic=None,
-            category=None,
-            search_term=item_for_match,
-            preferred_brand=None,
-            lactose_free=False,
-            rotation=True,
-            kb_matched=False,
-            match_score=round(score, 2),
-            notes=notes,
-        )
-
-    # 3) KB match válido
-    assert kb_product is not None
-    preferred_brand = kb_product.get("preferred_brand") or ""
-    typical_qty = kb_product.get("typical_qty") or 1
-    unit = kb_product.get("unit", "un")
-    generic = kb_product.get("generic", "")
-    category = kb_product.get("category", "")
-    lactose_free = str(kb_product.get("lactose_free", "false")).lower() == "true"
-    rotation = str(kb_product.get("rotation", "false")).lower() == "true"
-
-    if qty_from_raw is not None:
-        final_qty: float | int = qty_from_raw
-    else:
-        final_qty = (
-            int(typical_qty) if isinstance(typical_qty, (int, float)) and typical_qty == int(typical_qty) else typical_qty
-        )
-
-    search_term = _build_search_term(generic, preferred_brand or None, rotation)
+    gen_norm = normalize(generic)
+    unit = "kg" if any(h in gen_norm for h in _WEIGHT_HINTS) else "un"
+    dairy = any(h in gen_norm for h in _DAIRY_HINTS) and "ralado" not in gen_norm
+    lactose_free = bool(prefs.get("sem_lactose")) and dairy
 
     notes: list[str] = []
-    if "(" in raw and ")" in raw:
-        m = re.search(r"\(.*?\)", raw)
-        if m:
-            notes.append(f"nota original: {m.group()}")
-    if score < 0.65:
-        notes.append(f"match baixa confiança (score={score:.2f})")
-    if rotation:
-        notes.append("marca flexível — qualquer marca similar serve")
+    if brand:
+        notes.append(f"marca: {brand}")
+    else:
+        notes.append("sem marca — mais barato que passar no filtro")
+    if lactose_free:
+        notes.append("exigir sem lactose")
 
     return EnrichedItem(
         raw=raw,
         item_text=item_text,
         qty_from_raw=qty_from_raw,
-        qty=final_qty,
+        qty=qty_from_raw or 1,
         unit=unit,
         generic=generic,
-        category=category,
+        category=None,
         search_term=search_term,
-        preferred_brand=preferred_brand or None,
+        preferred_brand=brand,
         lactose_free=lactose_free,
         rotation=rotation,
-        kb_matched=True,
-        match_score=round(score, 2),
+        kb_matched=bool(brand or norm_key in apelidos),
+        match_score=1.0 if (brand or norm_key in apelidos) else 0.0,
         notes=notes,
     )
 
@@ -372,20 +327,12 @@ def load_profile(path: Path) -> dict[str, Any]:
 
 def enrich_list(list_path: Path, profile_path: Path) -> dict[str, Any]:
     profile = load_profile(profile_path)
-    products = profile.get("products", [])
-    vocabulary = profile.get("vocabulary", {}) or {}
-    direct_search = profile.get("direct_search", {}) or {}
-    config = profile.get("config", {}) or {}
-    threshold = float(
-        (config.get("enrichment") or {}).get("match_threshold", 0.45)
-    )
-
     raw_items = parse_list_file(list_path)
     enriched: list[EnrichedItem] = []
     for raw, flavor in raw_items:
         if not raw.strip():
             continue
-        item = enrich_item(raw, products, vocabulary, direct_search, threshold)
+        item = enrich_item(raw, profile)
         item.flavor = flavor
         if flavor:
             item.raw = f"{item.raw} ({flavor})"

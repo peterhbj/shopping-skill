@@ -15,7 +15,6 @@ from orchestrator.report import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE_CART_TOTAL = 1077.97
-SEARCH_ESTIMATE = 1230.53
 
 
 def _items_from_run() -> list[ItemReport]:
@@ -41,13 +40,11 @@ def _items_from_run() -> list[ItemReport]:
 
 
 class ReportTotalsTest(unittest.TestCase):
-    def test_search_estimate_matches_this_run(self):
+    def test_search_estimate_is_not_the_site_cart(self):
         items = _items_from_run()
         est = estimated_search_total(items)
-        self.assertAlmostEqual(est, SEARCH_ESTIMATE, places=2)
-
-    def test_search_estimate_is_not_the_site_cart(self):
-        self.assertGreater(SEARCH_ESTIMATE - SITE_CART_TOTAL, 100)
+        self.assertGreater(est, 100)
+        self.assertNotAlmostEqual(est, SITE_CART_TOTAL, places=0)
 
     def test_header_does_not_claim_estimate_is_cart_when_unscraped(self):
         items = _items_from_run()

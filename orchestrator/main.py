@@ -49,12 +49,15 @@ PROMPTS_DIR = Path(__file__).parent / "llm" / "prompts"
 def _load_config(profile_path: Path) -> tuple[SelectorConfig, dict]:
     data = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     cfg = data.get("config", {}) or {}
-    household = data.get("household", {}) or {}
+    if "sem_lactose" in data:
+        sl = bool(data.get("sem_lactose"))
+    else:
+        sl = bool((data.get("household") or {}).get("lactose_free", False))
     return SelectorConfig(
         dominance_threshold_pct=float(cfg.get("dominance_threshold_pct", 15.0)),
         pack_optimization=bool(cfg.get("pack_optimization", True)),
         max_packs_per_item=int(cfg.get("max_packs_per_item", 6)),
-        household_lactose_free=bool(household.get("lactose_free", False)),
+        household_lactose_free=sl,
     ), cfg
 
 
@@ -595,7 +598,7 @@ def main() -> int:
         help="plan=só busca, apply=só clica run.json, run=plan+grok+apply",
     )
     p.add_argument("--list", required=True, type=Path, help="Lista de compras MD/TXT")
-    p.add_argument("--profile", required=True, type=Path, help="perfil-compras.yaml")
+    p.add_argument("--profile", type=Path, default=Path("preferencias.yaml"), help="preferencias.yaml")
     p.add_argument("--run-file", type=Path, default=Path("run.json"), help="plano JSON")
     p.add_argument(
         "--report-out",

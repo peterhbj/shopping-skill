@@ -54,13 +54,15 @@ def _names_match(chosen: str | None, cart_name: str) -> bool:
     a, b = normalize(chosen), normalize(cart_name)
     if not a or not b:
         return False
-    if a in b or b in a:
+    if a == b:
         return True
     wa = {t for t in a.split() if len(t) >= 4}
-    wb = set(b.split())
+    wb = {t for t in b.split() if len(t) >= 3}
+    if not wa:
+        wa = {t for t in a.split() if len(t) >= 3}
     if not wa:
         return False
-    return len(wa & wb) >= min(2, len(wa))
+    return len(wa & wb) >= min(2, len(wa)) or (len(wa) == 1 and next(iter(wa)) in wb)
 
 
 def estimated_search_total(items: list[ItemReport]) -> float:
@@ -164,6 +166,11 @@ def render_report(
     if cart_lines_count is not None:
         matched = cart_matched if cart_matched is not None else "?"
         lines.append(f"- **Carrinho (linhas lidas)**: {cart_lines_count} · bateram com a lista: {matched}")
+        if cart_lines_count == 0:
+            lines.append(
+                "- **Carrinho não lido** — o drawer voltou vazio. "
+                "Isso **não** prova que os itens entraram; conferir no site."
+            )
     elif cart_badge_before is not None and cart_badge_after is not None:
         delta = cart_badge_after - cart_badge_before
         lines.append(f"- **Badge (pode mentir)**: {cart_badge_before} → {cart_badge_after} (+{delta})")

@@ -14,17 +14,8 @@
   window.__ANDORINHA_HELPERS_V2__ = true;
 
   function _cards() {
-    const selectors = [
-      '.item-product-wrapper',
-      '[class*="item-product-wrapper"]',
-      '[class*="item-product"]',
-      '[class*="product-card"]',
-      '[class*="ProductCard"]',
-    ];
-    for (const sel of selectors) {
-      const found = document.querySelectorAll(sel);
-      if (found.length) return found;
-    }
+    // Só o wrapper oficial. [class*=item-product] e a[href*=produto]
+    // pegam "produtos-aceleradores" no menu.
     return document.querySelectorAll('.item-product-wrapper');
   }
 
@@ -310,7 +301,12 @@ window.andorinha_click_decrease = function (index) {
   };
 
   window.andorinha_open_cart = function () {
-    const btn = document.querySelector('#cart-btn button') || document.querySelector('#cart-btn');
+    const btn =
+      document.querySelector('#cart-btn button') ||
+      document.querySelector('#cart-btn') ||
+      document.querySelector('[class*="icomoon-cart"]') ||
+      document.querySelector('[aria-label*="carrinho" i]') ||
+      document.querySelector('[aria-label*="sacola" i]');
     if (!btn) return { error: 'cart_btn_not_found' };
     btn.click();
     return { ok: true };
@@ -323,9 +319,10 @@ window.andorinha_click_decrease = function (index) {
       document.querySelector('[class*="mini-cart"]'),
       document.querySelector('[class*="minicart"]'),
       document.querySelector('[id*="cart-drawer"]'),
+      document.querySelector('[class*="cart-drawer-bottom-fixed"]') &&
+        document.querySelector('[class*="cart-drawer-bottom-fixed"]').closest('aside, [role="dialog"], div'),
       document.querySelector("aside"),
       document.querySelector('[role="dialog"]'),
-      document.body,
     ].filter(Boolean);
 
     const itemSels = [
@@ -375,7 +372,28 @@ window.andorinha_click_decrease = function (index) {
       };
     }
 
-    const lines = nodes.map(lineFrom).filter((l) => l.name);
+    let lines = nodes.map(lineFrom).filter((l) => l.name);
+
+    if (!lines.length && window.APOLLO_STATE) {
+      const apolloLines = [];
+      for (const v of Object.values(window.APOLLO_STATE)) {
+        if (!v || typeof v !== "object") continue;
+        const tn = String(v.__typename || "");
+        if (!/CartItem|OrderItem|ShoppingCartItem/i.test(tn)) continue;
+        const name = v.name || (v.product && v.product.name) || "";
+        if (!name) continue;
+        const qty = v.qty || v.quantity || 1;
+        const price = v.price || v.unitPrice || null;
+        apolloLines.push({
+          name,
+          name_lower: String(name).toLowerCase(),
+          qty: Number(qty) || 1,
+          price_num: price == null ? null : Number(price),
+        });
+      }
+      if (apolloLines.length) lines = apolloLines;
+    }
+
     return { count: lines.length, lines, url: location.href };
   };
 })();

@@ -32,7 +32,7 @@ python -m orchestrator.main run --list lista-compras.md --profile preferencias.y
 python -m orchestrator.browser --login
 ```
 
-Perfil persistente: `%TEMP%\andorinha-pw-profile` (Windows) ou `/tmp/andorinha-pw-profile`.
+Perfil persistente: `%TEMP%\andorinha-pw-profile` (Windows) ou `/tmp/andorinha-pw-profile`. Sempre `--profile preferencias.yaml` (não o `perfil-compras.yaml` antigo).
 
 Se o carrinho da corrida anterior ainda tiver item, esvazie antes de um teste. `apply` só dá os cliques que faltam para a qty alvo.
 
@@ -48,11 +48,11 @@ Se o carrinho da corrida anterior ainda tiver item, esvazie antes de um teste. `
 
 ## Pipeline
 
-1. **Enricher** — lista + `preferencias.yaml` (apelidos + marcas)
-2. **plan** — busca no site + regras (lactose, pack, marca, relevância)
+1. **Enricher** — lista + seção (`## Hortifruti`) + `preferencias.yaml`
+2. **plan** — busca Sense (categoria + `saleUnit`) + regras (família, palavra, lactose, marca)
 3. **grok -p** — só se a preferida tiver alternativa ≥15% mais barata/unidade
 4. **apply** — clica `+` e espera ack: card com botão `−` + qty estável (não o número otimista)
-5. **Relatório** — markdown
+5. **Relatório** — markdown. Drawer vazio = carrinho não lido, não “deu certo”.
 
 Itens em kg: em geral 1 clique; o peso você ajusta no site.
 

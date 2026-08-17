@@ -2,7 +2,7 @@
 enricher.py — Etapa 2 da Andorinha Shopping Skill (v2)
 
 Lê uma lista de compras raw (MD/TXT) e enriquece cada item cruzando
-com o perfil-compras.yaml (vocabulary, direct_search, products).
+com o preferencias.yaml (apelidos + marcas).
 
 CLI:
     python3 -m orchestrator.enricher \\
@@ -64,16 +64,42 @@ def _expand_flavors(part: str) -> list[tuple[str, str | None]]:
     return [(left, f) for f in flavors]
 
 
-def parse_list_file(path: Path) -> list[tuple[str, str | None]]:
-    """Lê MD/TXT. Cada item é (texto, flavor|None)."""
+def department_from_heading(line: str) -> str | None:
+    n = normalize(_EMOJI_RE.sub("", line).lstrip("#").strip())
+    if not n:
+        return None
+    if "tempero" in n:
+        return "emporio"
+    if any(x in n for x in ("fruta", "legume", "verdura", "hortifruti")):
+        return "hortifruti"
+    if any(x in n for x in ("higiene", "limpeza")):
+        return "higiene"
+    if "carne" in n:
+        return "carnes"
+    if any(x in n for x in ("mercearia", "despensa")):
+        return "mercearia"
+    if any(x in n for x in ("laticinio", "laticínio", "iogurte")):
+        return "laticinios"
+    return None
+
+
+def parse_list_file(path: Path) -> list[tuple[str, str | None, str | None]]:
+    """Lê MD/TXT. Cada item é (texto, flavor|None, department|None)."""
     text = path.read_text(encoding="utf-8")
-    raw_items: list[tuple[str, str | None]] = []
+    raw_items: list[tuple[str, str | None, str | None]] = []
+    current_dept: str | None = None
 
     for line in text.splitlines():
         original = line.strip()
-        if not original or original.startswith("#"):
+        if not original:
+            continue
+        if original.startswith("#"):
+            current_dept = department_from_heading(original) or current_dept
             continue
         if _BOLD_HEADER_RE.match(original):
+            heading_dept = department_from_heading(original)
+            if heading_dept:
+                current_dept = heading_dept
             continue
         checkbox = _CHECKBOX_RE.match(original)
         if checkbox:
@@ -101,16 +127,18 @@ def parse_list_file(path: Path) -> list[tuple[str, str | None]]:
         for part in parts:
             if _OU_PREFIX_RE.match(part):
                 continue
-            raw_items.extend(_expand_flavors(part))
+            raw_items.extend(
+                (item_text, flavor, current_dept) for item_text, flavor in _expand_flavors(part)
+            )
 
     seen: set[str] = set()
-    unique: list[tuple[str, str | None]] = []
-    for raw, flavor in raw_items:
+    unique: list[tuple[str, str | None, str | None]] = []
+    for raw, flavor, dept in raw_items:
         key = normalize(extract_qty_from_raw(raw)[0]) + "|" + normalize(flavor or "")
         if not key or key in seen:
             continue
         seen.add(key)
-        unique.append((raw, flavor))
+        unique.append((raw, flavor, dept))
     return unique
 
 
@@ -213,6 +241,7 @@ class EnrichedItem:
     match_score: float
     notes: list[str]
     flavor: str | None = None
+    department: str | None = None
 
 
 def _clean_brand_for_search(brand: str) -> str:
@@ -244,36 +273,56 @@ def _brand_core(brand: str) -> str:
 def _build_search_term(generic: str, preferred_brand: str | None, rotation: bool) -> str:
     """
     Busca = produto + marca (quando houver), nunca só a marca.
-    Evita: search='Heinz' → maionese; search='Yoki' → pipoca; search='Camil' → feijão.
+    Marca entra inteira (depois de tirar 500g/1kg). '3 Corações' permanece.
     """
     generic = (generic or "").strip()
     if not preferred_brand or rotation:
         return generic
-    core = _brand_core(preferred_brand)
-    if not core:
+    brand = _clean_brand_for_search(preferred_brand)
+    if not brand:
         return generic
-    # Se a marca já aparece no generic, não duplica
     gen_norm = normalize(generic)
-    if normalize(core) in gen_norm:
+    if normalize(brand) in gen_norm:
         return generic
-    gen_tokens = set(gen_norm.split())
-    extra = [t for t in core.split() if normalize(t) not in gen_tokens]
-    if not extra:
-        return generic
-    return f"{generic} {' '.join(extra)}".strip()
+    return f"{generic} {brand}".strip()
 
 
-_WEIGHT_HINTS = (
-    "patinho", "acem", "carne", "peito", "frango", "coxa", "asa", "bacon",
-    "linguica", "pernil", "bisteca", "tomate", "cebola", "pepino", "alho",
-    "cenoura", "abobrinha", "batata", "banana", "maca", "laranja", "manga",
-    "melao", "uva", "couve",
-)
+_KG_WORDS = frozenset({
+    "patinho", "acem", "peito", "frango", "coxa", "asa", "bacon",
+    "linguica", "pernil", "bisteca", "cenoura", "abobrinha", "batata",
+    "banana", "maca", "laranja", "manga", "melao", "tomate", "cebola",
+    "pepino", "alho", "couve", "carne", "uva", "alface",
+})
+
+_FORCE_UN_WORDS = frozenset({
+    "molho", "pipoca", "saco", "luva", "leite", "frito", "papel",
+    "detergente", "danone", "iogurte", "requeijao", "atum", "sal",
+    "acucar", "cafe", "farofa", "bisnaguinha",
+})
 
 _DAIRY_HINTS = ("leite", "requeijao", "iogurte", "creme de leite", "danone")
 
 
-def enrich_item(raw: str, prefs: dict[str, Any]) -> EnrichedItem:
+def expected_unit(generic: str, department: str | None) -> str:
+    words = set(normalize(generic).split())
+    if words & _FORCE_UN_WORDS:
+        return "un"
+    if department == "hortifruti":
+        return "kg"
+    if department == "carnes" and "ovo" not in words:
+        return "kg"
+    if department in ("mercearia", "higiene", "emporio", "laticinios"):
+        return "un"
+    if words & _KG_WORDS:
+        return "kg"
+    return "un"
+
+
+def enrich_item(
+    raw: str,
+    prefs: dict[str, Any],
+    department: str | None = None,
+) -> EnrichedItem:
     item_text, qty_from_raw = extract_qty_from_raw(raw)
     item_for_match = re.sub(r"\(.*?\)", "", item_text).strip() or item_text
     norm_key = normalize(item_for_match)
@@ -286,11 +335,13 @@ def enrich_item(raw: str, prefs: dict[str, Any]) -> EnrichedItem:
     search_term = _build_search_term(generic, brand, rotation)
 
     gen_norm = normalize(generic)
-    unit = "kg" if any(h in gen_norm for h in _WEIGHT_HINTS) else "un"
+    unit = expected_unit(generic, department)
     dairy = any(h in gen_norm for h in _DAIRY_HINTS) and "ralado" not in gen_norm
     lactose_free = bool(prefs.get("sem_lactose")) and dairy
 
     notes: list[str] = []
+    if department:
+        notes.append(f"dept: {department}")
     if brand:
         notes.append(f"marca: {brand}")
     else:
@@ -305,7 +356,7 @@ def enrich_item(raw: str, prefs: dict[str, Any]) -> EnrichedItem:
         qty=qty_from_raw or 1,
         unit=unit,
         generic=generic,
-        category=None,
+        category=department,
         search_term=search_term,
         preferred_brand=brand,
         lactose_free=lactose_free,
@@ -313,6 +364,7 @@ def enrich_item(raw: str, prefs: dict[str, Any]) -> EnrichedItem:
         kb_matched=bool(brand or norm_key in apelidos),
         match_score=1.0 if (brand or norm_key in apelidos) else 0.0,
         notes=notes,
+        department=department,
     )
 
 
@@ -329,10 +381,10 @@ def enrich_list(list_path: Path, profile_path: Path) -> dict[str, Any]:
     profile = load_profile(profile_path)
     raw_items = parse_list_file(list_path)
     enriched: list[EnrichedItem] = []
-    for raw, flavor in raw_items:
+    for raw, flavor, department in raw_items:
         if not raw.strip():
             continue
-        item = enrich_item(raw, profile)
+        item = enrich_item(raw, profile, department=department)
         item.flavor = flavor
         if flavor:
             item.raw = f"{item.raw} ({flavor})"

@@ -9,7 +9,7 @@ Mudanças vs v2 original:
 CLI:
     python3 -m orchestrator.main \\
         --list lista-compras.md \\
-        --profile perfil-compras.yaml \\
+        --profile preferencias.yaml \\
         --report-out /tmp/relatorio.md \\
         [--dry-run] [--use-llm] [--launch-own]
 """
@@ -39,6 +39,7 @@ from .selector import (
     Decision,
     NoResult,
     SelectorConfig,
+    is_lactose_free_label,
     select,
 )
 
@@ -129,9 +130,19 @@ def _packs_for(chosen: ProductResult, enriched_item: dict, config: SelectorConfi
     )
 
 
-def _search_results(b: Browser, search: str) -> list[ProductResult]:
+def _search_results(
+    b: Browser, search: str, *, lactose_free: bool = False
+) -> list[ProductResult]:
     b.search(search)
     results = b.get_results()
+    if lactose_free and results and not any(is_lactose_free_label(r.name_lower) for r in results):
+        try:
+            b.search(f"{search} sem lactose")
+            sl = b.get_results()
+            if sl:
+                return sl
+        except Exception:
+            pass
     if results:
         return results
     fallback = search.split()[0] if search.split() else search
@@ -152,6 +163,9 @@ def _cand_payload(results: list[ProductResult]) -> list[dict]:
             "price_num": r.price_num,
             "price_per_base_unit": r.price_per_base_unit,
             "price_base_dim": r.price_base_dim,
+            "sale_unit": r.sale_unit,
+            "categories": (r.categories or [])[:3],
+            "brand_name": r.brand_name,
         }
         for r in results[:12]
     ]
@@ -215,7 +229,7 @@ def _plan_one(b: Browser, item: dict, config: SelectorConfig) -> dict:
         base["notes"] = ["search_term vazio"]
         return base
     try:
-        results = _search_results(b, search)
+        results = _search_results(b, search, lactose_free=bool(item.get("lactose_free")))
     except Exception as e:
         base["notes"] = [f"erro navegação: {e}"]
         return base
@@ -448,7 +462,11 @@ def run(
                         continue
                     print(f"[main] [grok {n}] {planned.get('raw', '')[:40]}", flush=True)
                     try:
-                        results = _search_results(b, planned.get("search_term") or "")
+                        results = _search_results(
+                            b,
+                            planned.get("search_term") or "",
+                            lactose_free=bool(item.get("lactose_free")),
+                        )
                     except Exception:
                         results = []
                     planned_list[n - 1] = _resolve_needs_grok(
@@ -459,7 +477,11 @@ def run(
                     if planned.get("status") != "needs_grok":
                         continue
                     try:
-                        results = _search_results(b, planned.get("search_term") or "")
+                        results = _search_results(
+                            b,
+                            planned.get("search_term") or "",
+                            lactose_free=bool(item.get("lactose_free")),
+                        )
                     except Exception:
                         results = []
                     planned_list[n - 1] = _resolve_needs_grok(

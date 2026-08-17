@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .browser import ProductResult
+from .enricher import normalize
 
 
 # =============================================================================
@@ -93,6 +94,7 @@ _DAIRY_KEYWORDS = (
     "requeijao",
     "creme de leite",
     "leite condensado",
+    "danone",
 )
 
 
@@ -299,7 +301,15 @@ def _packs_needed_for_item(
     - caso contrário → max(1, int(qty)) limitado
     """
     unit = (enriched_item.get("unit") or "").lower()
-    if _is_weight_unit(unit) or chosen.price_per_kg:
+    sale = (chosen.sale_unit or "").upper()
+    ptype = (chosen.product_type or "").upper()
+    if (
+        sale == "KG"
+        or ptype == "VARIABLE"
+        or chosen.sell_by_weight
+        or chosen.price_per_kg
+        or _is_weight_unit(unit)
+    ):
         return 1, round(chosen.price_num, 2)
 
     if (
@@ -319,199 +329,170 @@ def _packs_needed_for_item(
     return packs, round(packs * chosen.price_num, 2)
 
 
-_CORE_PRODUCT_WORDS = frozenset({
-    "cafe", "café", "arroz", "feijao", "feijão", "sucrilhos", "nescau", "farofa",
-    "molho", "tomate", "maionese", "ketchup", "mostarda", "azeite", "vinagre",
-    "leite", "condensado", "creme", "requeijao", "requeijão", "queijo", "ralado",
-    "atum", "papel", "higienico", "higiênico", "toalha", "detergente",
-    "pipoca", "biscoito", "bolacha", "maizena", "torrada", "pao", "pão",
-    "bisnaguinha", "agua", "água", "refrigerante", "linguiça", "linguica",
-    "nescafe", "nescafé", "soluvel", "solúvel",
-    "bacon", "frango", "peito", "coxa", "carne", "filtro", "cereal",
+_STOP = frozenset({
+    "de", "da", "do", "com", "sem", "para", "em", "e", "ou", "a", "o", "um", "uma",
+    "tipo", "pacote", "caixa", "garrafa", "pote", "normal",
 })
+
+_SYNONYMS = {
+    "bolacha": ("biscoito", "maizena", "rosquinha"),
+    "biscoito": ("bolacha", "maizena"),
+    "pao": ("bisnaguinha", "pao"),
+    "file": ("peito", "file"),
+    "refri": ("refrigerante", "bioleve"),
+    "agua": ("agua", "mineral"),
+    "danone": ("danone",),
+}
+
+# Pedido hortifruti não pode cair em mercearia/bebidas, etc.
+_DEPT_REJECT = {
+    "hortifruti": (
+        "mercearia", "bebidas", "latic", "higiene", "limpeza",
+        "padaria", "massas", "carnes e aves",
+    ),
+    "carnes": ("hortifruti", "mercearia", "bebidas", "higiene", "limpeza", "massas"),
+    "higiene": ("hortifruti", "carnes e aves", "latic", "bebidas", "frutas", "massas"),
+    "mercearia": ("hortifruti", "carnes e aves", "frutas"),
+    "emporio": ("carnes e aves",),
+    "laticinios": ("hortifruti", "carnes e aves", "massas"),
+}
+
+# Família extra no nome que o pedido não pediu.
+_EXTRA_FAMILY = (
+    frozenset({"poro"}),
+    frozenset({"suco", "nectar", "refresco", "polpa"}),
+    frozenset({"macarrao", "espaguete", "nissin"}),
+    frozenset({"energetico"}),
+    frozenset({"pimentao"}),
+    frozenset({"maionese"}),
+    frozenset({"passa"}),
+)
+
+
+def _has_word(haystack: str, word: str) -> bool:
+    h = normalize(haystack)
+    w = normalize(word)
+    if not w:
+        return False
+    return re.search(rf"\b{re.escape(w)}\b", h) is not None
+
+
+def _query_words(enriched_item: dict) -> set[str]:
+    bits = [
+        enriched_item.get("generic") or "",
+        enriched_item.get("item_text") or "",
+        enriched_item.get("raw") or "",
+        enriched_item.get("flavor") or "",
+    ]
+    words: set[str] = set()
+    for src in bits:
+        for tok in normalize(src).split():
+            if len(tok) >= 3 and tok not in _STOP and not tok.isdigit():
+                words.add(tok)
+                words.update(_SYNONYMS.get(tok, ()))
+    return words
+
+
+def _cats_blob(c: ProductResult) -> str:
+    return normalize(" ".join(c.categories or []))
+
+
+def _is_kg_hit(c: ProductResult) -> bool:
+    sale = (c.sale_unit or "").upper()
+    ptype = (c.product_type or "").upper()
+    return sale == "KG" or ptype == "VARIABLE" or bool(c.sell_by_weight) or bool(c.price_per_kg)
+
+
+def _department_ok(c: ProductResult, department: str | None, generic: str) -> bool:
+    if not department:
+        return True
+    gen = normalize(generic)
+    if gen in ("ovo", "ovos"):
+        return True
+    blob = _cats_blob(c)
+    if not blob:
+        return True
+    for needle in _DEPT_REJECT.get(department, ()):
+        if needle in blob:
+            return False
+    return True
+
+
+def _unwanted_extra(query_words: set[str], name: str) -> bool:
+    n = normalize(name)
+    for group in _EXTRA_FAMILY:
+        if any(_has_word(n, t) for t in group) and not (query_words & group):
+            return True
+    return False
+
+
+def _name_matches(query_words: set[str], name: str, strict: bool) -> bool:
+    if not query_words:
+        return True
+    strong = {w for w in query_words if len(w) >= 4}
+    if strict and strong:
+        return all(_has_word(name, w) for w in strong)
+    return any(_has_word(name, w) for w in query_words)
+
+
+def _primary_word(generic: str) -> str | None:
+    for tok in normalize(generic).split():
+        if len(tok) >= 3 and tok not in _STOP:
+            return tok
+    return None
+
+
+def _passes_gates(
+    c: ProductResult,
+    query_words: set[str],
+    department: str | None,
+    generic: str,
+    flavor: str,
+    strict: bool,
+) -> bool:
+    primary = _primary_word(generic)
+    if primary and not _has_word(c.name, primary):
+        return False
+    if not _name_matches(query_words, c.name, strict=strict):
+        return False
+    if not _department_ok(c, department, generic):
+        return False
+    if _unwanted_extra(query_words, c.name):
+        return False
+    if flavor:
+        flavor_toks = [t for t in re.split(r"\W+", flavor) if len(t) >= 3]
+        if flavor_toks and not any(_has_word(c.name, t) for t in flavor_toks):
+            return False
+    return True
 
 
 def _filter_relevant(
     candidates: list[ProductResult],
     enriched_item: dict,
 ) -> list[ProductResult]:
-    """
-    Remove resultados cujo nome não combina com o item pedido.
-    Exige palavra-núcleo; rejeita pares clássicos de confusão.
-    """
-    generic = (enriched_item.get("generic") or "").lower()
-    item_text = (enriched_item.get("item_text") or enriched_item.get("raw") or "").lower()
-    category = (enriched_item.get("category") or "").lower()
+    """Gates: palavra (não substring), departamento Sense, unidade, família extra."""
+    generic = enriched_item.get("generic") or enriched_item.get("item_text") or ""
+    department = (enriched_item.get("department") or enriched_item.get("category") or "") or None
+    unit_expected = (enriched_item.get("unit") or "un").lower()
+    query_words = _query_words(enriched_item)
+    flavor = (enriched_item.get("flavor") or "").lower()
 
-    stop = {
-        "de", "da", "do", "com", "sem", "para", "em", "e", "ou", "a", "o", "um", "uma",
-        "tipo", "pacote", "caixa", "garrafa", "pote",
-    }
-    keywords: set[str] = set()
-    for src in (generic, item_text):
-        for tok in re.split(r"\W+", src):
-            if len(tok) >= 3 and tok not in stop and not tok.isdigit():
-                keywords.add(tok)
+    filtered = [
+        c for c in candidates
+        if _passes_gates(c, query_words, department, generic, flavor, strict=True)
+    ]
+    if not filtered:
+        filtered = [
+            c for c in candidates
+            if _passes_gates(c, query_words, department, generic, flavor, strict=False)
+        ]
 
-    core = keywords & _CORE_PRODUCT_WORDS
-    for tok in re.split(r"\W+", generic):
-        if len(tok) >= 4 and tok not in stop:
-            core.add(tok)
-
-    # Sinônimos: o site usa um termo, a lista usa outro
-    _SYNONYMS = {
-        "bolacha": {"biscoito", "maizena", "rosquinha", "rosquinhas"},
-        "biscoito": {"bolacha", "maizena"},
-        "pao": {"bisnaguinha", "pão", "pao"},
-        "pão": {"bisnaguinha", "pao"},
-        "file": {"peito", "filé", "file"},
-        "filé": {"peito", "file"},
-        "refri": {"refrigerante", "bioleve"},
-        "agua": {"água", "mineral"},
-        "água": {"agua", "mineral"},
-    }
-    expanded_core = set(core)
-    for k in list(core | keywords):
-        for syn in _SYNONYMS.get(k, ()):
-            expanded_core.add(syn)
-    core = expanded_core
-
-    reject_if: list[str] = []
-    # Só rejeita "molho" quando o pedido é tomate in natura — NÃO quando o pedido É molho
-    _wants_sauce = any(k in keywords for k in ("molho", "extrato", "polpa", "passata"))
-    _is_produce = category == "hortifruti" or any(
-        k in keywords for k in ("tomate", "cebola", "alface", "pepino")
-    )
-    if _is_produce:
-        reject_if += ["semente", "sementes", "muda"]
-    if not _wants_sauce and _is_produce:
-        reject_if += ["molho", "extrato", "catchup", "ketchup", "polpa", "passata", "conserva", "maionese"]
-    if "arroz" in keywords:
-        reject_if += ["feijao", "feijão", "filtro"]
-    if any(k in keywords for k in ("cafe", "café")) and "filtro" not in keywords:
-        reject_if += ["filtro"]
-    if "farofa" in keywords:
-        reject_if += ["pipoca", "milho"]
-    if "molho" in keywords:
-        reject_if += ["maionese", "mostarda", "ketchup", "catchup"]
-    if "condensado" in keywords:
-        reject_if += ["creme"]
-    if "creme" in keywords and "condensado" not in keywords:
-        reject_if += ["condensado"]
-    if any(k in keywords for k in ("sucrilhos", "nescau", "cereal")):
-        reject_if += ["papel", "higienico", "higiênico"]
-    if any(k in keywords for k in ("coala", "orquidea", "orquídea")):
-        reject_if += ["lava roupa", "lava-roupa", "lavaroupas", "amaciante"]
-
-    filtered: list[ProductResult] = []
-    for c in candidates:
-        name = c.name_lower
-        if reject_if and any(r in name for r in reject_if):
-            continue
-        joined = f"{generic} {item_text}"
-
-        # Água com gás
-        if any(x in joined for x in ("gás", "gas")):
-            if "sem gas" in name or "sem gás" in name:
-                continue
-        # Queijo ralado: não kg
-        if "ralado" in keywords and re.search(r"\bkg\b", name) and not re.search(r"\d+\s*g\b", name):
-            continue
-        # Leite líquido: não pó
-        if "leite" in keywords and not any(x in keywords for x in ("po", "pó", "condensado", "creme")):
-            if "em po" in name or "em pó" in name or "leite po" in name or "leite pó" in name:
-                continue
-        # CONDENSADO: nome deve ter a palavra
-        if "condensado" in keywords and "condensado" not in name:
-            continue
-        # Pipoca microondas: rejeitar milho de pipoca
-        if "pipoca" in keywords or "microondas" in generic:
-            if "milho" in name and "microondas" not in name and "micro" not in name:
-                continue
-        # Peito/filé: rejeitar c/osso quando pedimos sem osso
-        if any(k in joined for k in ("peito", "filé", "file", "frango")):
-            wants_boneless = any(x in joined for x in ("sem osso", "s/osso", "s/ osso", "s osso", "desossado"))
-            # default da lista "filé de frango" / peito → preferir s/osso
-            if wants_boneless or "peito" in joined:
-                if any(x in name for x in ("c/osso", "com osso", "c/ osso", "c osso")):
-                    continue
-        # Molho: nome deve conter molho
-        if "molho" in keywords and "molho" not in name:
-            continue
-
-        # Café solúvel / Nescafé: não pegar "com leite" a menos que a lista peça
-        wants_com_leite = any(x in joined for x in ("com leite", "c/leite", "c/ leite"))
-        if (
-            any(k in keywords for k in ("nescafe", "nescafé"))
-            or "soluvel" in generic
-            or "solúvel" in generic
-        ):
-            if not wants_com_leite and any(
-                x in name for x in ("com leite", "c/leite", "c/ leite", "c leite")
-            ):
-                continue
-
-        # Coxa e sobrecoxa: exige os dois cortes (não só coxa — "coxa" ⊂ "sobrecoxa")
-        if "coxa" in keywords and "sobrecoxa" in keywords:
-            if not (re.search(r"\bcoxa\b", name) and re.search(r"\bsobrecoxa\b", name)):
-                continue
-
-        # "pedaço" ≠ fatiado
-        if any(x in joined for x in ("pedaço", "pedaco")) and any(
-            x in name for x in ("fatiado", "fatiada")
-        ):
-            continue
-
-        # Esponja: amarela/multiuso ≠ azul "não risca"
-        if any(x in joined for x in ("não risca", "nao risca", "n/risca")):
-            if not any(x in name for x in ("não risca", "nao risca", "n/risca", "nao-risca")):
-                if "azul" not in name:
-                    continue
-        elif any(x in joined for x in ("amarela", "multiuso")):
-            if any(x in name for x in ("não risca", "nao risca", "n/risca")):
-                continue
-
-        # Bisteca/pernil em kg: rejeita pacote congelado pequeno (800g pct)
-        item_unit = (enriched_item.get("unit") or "").lower()
-        if (
-            item_unit in ("kg", "g")
-            and any(k in keywords for k in ("bisteca", "pernil", "copa"))
-            and re.search(r"cong", name)
-            and re.search(r"\d+\s*g\b", name)
-            and not re.search(r"\bkg\b", name)
-        ):
-            continue
-
-        flavor = (enriched_item.get("flavor") or "").lower()
-        if flavor:
-            flavor_toks = [t for t in re.split(r"\W+", flavor) if len(t) >= 3]
-            rivals = []
-            if any(x in flavor for x in ("manteiga", "butter")):
-                rivals += ["chef", "bacon"]
-            elif re.search(r"\bsal\b", flavor) or "natural" in flavor:
-                rivals += ["manteiga", "butter", "bacon", "chef"]
-            elif "chef" in flavor or "tempero" in flavor:
-                rivals += ["manteiga", "butter"]
-            if any(x in flavor for x in ("limao", "limão")):
-                rivals += ["mexerica", "laranja", "citrus"]
-            elif "mexerica" in flavor:
-                rivals += ["limao", "limão"]
-            if rivals and any(r in name for r in rivals):
-                continue
-            if flavor_toks and not any(t in name for t in flavor_toks):
-                continue
-
-        if keywords and not any(k in name for k in keywords):
-            continue
-        if core and not any(k in name for k in core):
-            continue
-        filtered.append(c)
-
-    # Refri Bioleve: se tem 1,5L na lista, descarta 510ml
-    if any(k in keywords for k in ("bioleve", "refrigerante", "refri")) and len(filtered) > 1:
-        large = [c for c in filtered if re.search(r"1[.,]?5\s*(?:l|lt|litro)", c.name_lower)]
-        if large:
-            filtered = large
+    kgish = [c for c in filtered if _is_kg_hit(c)]
+    unish = [c for c in filtered if not _is_kg_hit(c)]
+    if unit_expected in ("kg", "g") and kgish:
+        filtered = kgish
+    elif unit_expected == "un" and unish:
+        filtered = unish
 
     return filtered
 

@@ -1,20 +1,20 @@
 ---
 name: andorinha-skill
 description: >
-  Monta o carrinho no Andorinha a partir de lista-compras.md e perfil-compras.yaml. O script chama grok -p nas ambiguidades. O agente é conselheiro: plan/apply, alinhamento ao perfil, checagem final. Nunca finaliza a compra. Use when the user runs /andorinha-skill, or mentions compras Andorinha, montar carrinho, lista de compras, or revisar carrinho.
+  Monta o carrinho no Andorinha a partir de lista-compras.md e preferencias.yaml. O script chama grok -p nas ambiguidades. O agente é conselheiro: plan/apply, alinhamento ao perfil, checagem final. Nunca finaliza a compra. Use when the user runs /andorinha-skill, or mentions compras Andorinha, montar carrinho, lista de compras, or revisar carrinho.
 ---
 
 # Andorinha shopping advisor
 
 Repo root = pasta com `lista-compras.md`, `preferencias.yaml` e `orchestrator/`.
-Preferências são curtas: `apelidos` + `marcas` + `sem_lactose`. Qty vem da lista (`Sal (2)`). O YAML enorme (`perfil-compras.yaml`) é arquivo morto.
+Preferências são curtas: `apelidos` + `marcas` + `sem_lactose`. Qty vem da lista (`Sal (2)`). O YAML enorme (`perfil-compras.yaml`) é arquivo morto — não use.
 
 ## Hard rules
 
 - Never checkout. Never click finalizar or pay.
 - Never `--no-keep-open` on `apply` / `run`.
-- Preferences live in `perfil-compras.yaml`. Do not invent brands.
-- Ask the user when unsure. Persist lasting answers in the YAML (`vocabulary` / `direct_search`). One-off qty stays in the list.
+- Preferences live in `preferencias.yaml`. Do not invent brands.
+- Ask the user when unsure. Persist lasting answers as `apelidos` / `marcas`. One-off qty stays in the list.
 - Ambiguities are resolved by `grok -p` inside the script (not Claude). If the CLI fails, read `run.json` and decide with the user.
 
 ## List syntax

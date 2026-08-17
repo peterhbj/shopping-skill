@@ -35,7 +35,7 @@ class PrefsTest(unittest.TestCase):
                 encoding="utf-8",
             )
             items = parse_list_file(p)
-            texts = [t for t, _ in items]
+            texts = [t for t, *_ in items]
             self.assertIn("Arroz", texts)
             self.assertIn("Sal (2)", texts)
             self.assertIn("Óleo normal", texts)
@@ -70,6 +70,14 @@ class PrefsTest(unittest.TestCase):
         by_raw = {i["item_text"]: i for i in result["items"]}
         self.assertEqual(by_raw["Sal"]["qty"], 2)
         self.assertIn("camil", by_raw["Arroz"]["search_term"].lower())
+        self.assertEqual(by_raw["Molho de tomate"]["unit"], "un")
+        self.assertEqual(by_raw["Luva P"]["unit"], "un")
+        self.assertEqual(by_raw["Maçã"]["unit"], "kg")
+        cafe = by_raw["Café"]["search_term"].lower()
+        self.assertIn("3", by_raw["Café"]["search_term"])
+        self.assertIn("orações", cafe)
+        self.assertIn("danone", by_raw["Danone"]["search_term"].lower())
+        self.assertNotEqual(by_raw["Danone"]["search_term"].lower(), "iogurte")
 
 
 if __name__ == "__main__":

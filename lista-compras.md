@@ -1,55 +1,68 @@
-Lista de compras
+# Lista de Compras
 
-**🧴 Limpeza / Higiene**
-- Sal
-- Detergente
-- Candida grande
-- Removedor Búfalo
-- Papel higiênico
-- Papel alumínio
-- Papel toalha
-- Esponja amarela
-- Esponja azul que não risca
-- Limpador perfumado Coala – Orquídea Negra
-- Mão clareador
+## Mercearia / Despensa
+- [ ] Arroz
+- [ ] Óleo normal
+- [ ] Leite em pó
+- [ ] Creme de leite
+- [ ] Molho de tomate
+- [ ] Queijo ralado
+- [ ] Açúcar
+- [ ] Água
+- [ ] Refri
+- [ ] Pipoca
+- [ ] Requeijão
+- [ ] Atum
+- [ ] Sal (2)
+- [ ] Bisnaguinha
+- [ ] Farofa
+- [ ] Café
+- [ ] Lanches das crianças
+- [ ] Danone
+- [ ] Suquinho
+- [ ] Iogurte
+- [ ] Feijão normal (2)
+- [ ] Leite
 
-**🥫 Mercearia / Despensa**
-- Atum
-- Café
-- Torrada / maionese
-- Pão
-- Requeijão
-- Bolacha de coco / Maizena
-- Lanches crianças
-- Creme de leite
-- Leite condensado
-- Folhata
-- Toddy / pipoca
-- Leite 12 / queijo ralado
-- Nescafé / requeijão
-- Arroz
-- Farofa 2 / batata palha
-- Sucrilhos
-- Nescan Ball
-- Refri / água gás
-- Azeite
-- Vinagre
-- Molho tomate
+## Carnes e Ovos
+- [ ] Carne de panela
+- [ ] Bife
+- [ ] Linguiça fresca
+- [ ] Bacon
+- [ ] Linguiça defumada
+- [ ] Ovo
+- [ ] Coxinha da asa
+- [ ] Sobre-coxa com coxa
+- [ ] Filé de frango
+- [ ] Carne moída
 
-**🥩 Carnes**
-- Carne moída
-- Filé de frango / ou peito
-- Coxa e sobrecoxa
-- Coxinha da asa
-- Bifé
-- Carne de panela
-- Pernil pedaço
-- Linguiça defumada
-- Linguiça normal
-- Bisteca de copa
+## Higiene e Limpeza
+- [ ] Papel higiênico
+- [ ] Papel toalha
+- [ ] Saco de lixo (lixeira grande)
+- [ ] Papel alumínio
+- [ ] Luva P
 
-**🥗 Hortifrúti**
-- Tomate
-- Cebola
-- Pepino
-- Alface
+## Hortifruti
+### Legumes e Verduras
+- [ ] Alface
+- [ ] Couve
+- [ ] Cenoura
+- [ ] Abobrinha
+- [ ] Tomate
+- [ ] Pepino
+- [ ] Alho
+- [ ] Batata
+
+### Temperos
+- [ ] Chimichurri
+- [ ] Páprica defumada
+- [ ] Alho frito
+
+### Frutas
+- [ ] Banana
+- [ ] Maçã
+- [ ] Laranja
+- [ ] Manga
+- [ ] Melão
+- [ ] Uva

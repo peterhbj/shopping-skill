@@ -135,6 +135,8 @@ class FamilySelectTest(unittest.TestCase):
         self.assertEqual(expected_unit("luva de borracha p", "higiene"), "un")
         self.assertEqual(expected_unit("molho de tomate", "mercearia"), "un")
         self.assertEqual(expected_unit("Maçã", "hortifruti"), "kg")
+        self.assertEqual(expected_unit("ovos", "carnes"), "un")
+        self.assertEqual(expected_unit("alface", "hortifruti"), "un")
 
     def test_cafe_search_keeps_3_coracoes(self):
         item = enrich_item("Café", {"marcas": {"cafe": "3 Corações"}, "apelidos": {}})
@@ -158,6 +160,90 @@ class FamilySelectTest(unittest.TestCase):
         out = select(_item("Uva", department="hortifruti"), cands, CFG)
         self.assertIsInstance(out, Decision)
         self.assertIn("Thompson", out.name)
+
+    def test_leite_em_po_not_longa_vida(self):
+        cands = [
+            _hit("Leite Longa Vida Semi Desnatado Jussara Zero Lactose Garrafa 1LT", ["Laticínios e Frios"], idx=0),
+            _hit("Leite Condensado Semi Desnatado Moça Cx 395g", ["Mercearia"], idx=1),
+            _hit("Leite em Pó Soja Soy + Original Sem Lactose Pote 300G", ["Mercearia"], idx=2),
+            _hit("Leite em Pó Ninho Integral 380g", ["Mercearia"], idx=3),
+        ]
+        out = select(_item("Leite em pó", department="mercearia"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertIn("Pó", out.name)
+        self.assertNotIn("Soja", out.name)
+
+    def test_pipoca_prefers_microondas(self):
+        cands = [
+            _hit("Milho Pipoca Yoki Premium 400g", ["Mercearia", "Mercearia > Grãos, Arroz e Feijões > Pipoca"], idx=0),
+            _hit("Pipoca de Microondas Yoki Pop Corn Natural com Sal 100G", ["Mercearia"], idx=1),
+        ]
+        out = select(_item("Pipoca", department="mercearia", brand="Yoki"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertIn("Microondas", out.name)
+
+    def test_bife_not_moida(self):
+        cands = [
+            _hit("Patinho Prata Moída Kg", ["Carnes e aves"], "KG", "VARIABLE", idx=0),
+            _hit("Patinho Prata Fatiado Kg", ["Carnes e aves"], "KG", "VARIABLE", idx=1),
+            _hit("Patinho Prata Pedaço Kg", ["Carnes e aves"], "KG", "VARIABLE", idx=2),
+        ]
+        out = select(_item("Bife", generic="patinho", department="carnes", unit="kg"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertIn("Pedaço", out.name)
+        self.assertNotIn("Fatiado", out.name)
+
+    def test_ovo_not_codorna(self):
+        cands = [
+            _hit("Ovos De Codorna Shinoda C/30", ["Mercearia"], idx=0),
+            _hit("Ovos Brancos Grandes Cartela C/20", ["Mercearia"], idx=1),
+        ]
+        out = select(_item("Ovo", generic="ovos", department="carnes", unit="un"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertNotIn("Codorna", out.name)
+
+    def test_luva_prefers_tamanho_p(self):
+        cands = [
+            _hit("Luva Latex Forrada Laranja M Sanro Plus Embalagem 1 Par", ["Bazar e utilidades"], idx=0),
+            _hit("Luva Latex Danny Amarela Tamanho P Embalagem 1 Par", ["Bazar e utilidades"], idx=1),
+        ]
+        out = select(_item("Luva P", generic="luva de borracha p", department="higiene"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertRegex(out.name, r"\bP\b")
+
+    def test_chimichurri_not_sal_de_churrasco(self):
+        cands = [
+            _hit("Sal Para Churrasco Br Spices com Chimichurri Embalagem 350g", ["Mercearia"], idx=0),
+            _hit("Tempero Chimichurri S/Pimenta Granel Kg", ["Empório"], "KG", "VARIABLE", idx=1),
+        ]
+        out = select(_item("Chimichurri", department="emporio"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertIn("Tempero Chimichurri", out.name)
+
+    def test_acucar_not_fit(self):
+        cands = [
+            _hit("Açúcar União Fit Pacote 500G", ["Mercearia"], brand="União", idx=0),
+            _hit("Açúcar Cristal União Cristalçúcar Pacote 1KG", ["Mercearia"], brand="União", idx=1),
+        ]
+        out = select(_item("Açúcar", department="mercearia", brand="União"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertNotIn("Fit", out.name)
+
+    def test_refri_matches_refrigerante(self):
+        cands = [
+            _hit("Refrigerante de Limão Bioleve Zero 1.5LT", ["Bebidas não Alcoólicas", "Bebidas não Alcoólicas > Refrigerantes"], brand="Bioleve", idx=0),
+        ]
+        out = select(_item("Refri", department="mercearia", brand="Bioleve"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertIn("Refrigerante", out.name)
+
+    def test_papel_aluminio_matches_rolo(self):
+        cands = [
+            _hit("Rolo De Alumínio Kiko 30x4m", ["Bazar e Utilidades", "Bazar e Utilidades > Descartáveis > Papel Alumínio"], idx=0),
+        ]
+        out = select(_item("Papel alumínio", department="higiene"), cands, CFG)
+        self.assertIsInstance(out, Decision)
+        self.assertIn("Alumínio", out.name)
 
     def test_empty_after_gates_is_not_found(self):
         cands = [

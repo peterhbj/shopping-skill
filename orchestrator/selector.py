@@ -334,14 +334,26 @@ _STOP = frozenset({
     "tipo", "pacote", "caixa", "garrafa", "pote", "normal",
 })
 
+# Tokens curtos que importam (pó → po; tamanho P).
+_SHORT_KEEP = frozenset({"po", "sl", "p", "m", "g"})
+
 _SYNONYMS = {
     "bolacha": ("biscoito", "maizena", "rosquinha"),
     "biscoito": ("bolacha", "maizena"),
     "pao": ("bisnaguinha", "pao"),
     "file": ("peito", "file"),
-    "refri": ("refrigerante", "bioleve"),
+    "refri": ("refrigerante", "refri", "bioleve"),
+    "papel": ("papel", "rolo", "folha"),
     "agua": ("agua", "mineral"),
     "danone": ("danone",),
+    "ovo": ("ovo", "ovos"),
+    "ovos": ("ovo", "ovos"),
+}
+
+_SIZE_ALIASES = {
+    "p": ("tamanho p", "tam p", "pequena", "pequeno", "peq"),
+    "m": ("tamanho m", "tam m", "media", "medio"),
+    "g": ("tamanho g", "tam g", "grande"),
 }
 
 # Pedido hortifruti não pode cair em mercearia/bebidas, etc.
@@ -366,6 +378,11 @@ _EXTRA_FAMILY = (
     frozenset({"pimentao"}),
     frozenset({"maionese"}),
     frozenset({"passa"}),
+    frozenset({"moida", "moido"}),
+    frozenset({"codorna"}),
+    frozenset({"fit"}),
+    frozenset({"condensado"}),
+    frozenset({"soja"}),
 )
 
 
@@ -387,7 +404,9 @@ def _query_words(enriched_item: dict) -> set[str]:
     words: set[str] = set()
     for src in bits:
         for tok in normalize(src).split():
-            if len(tok) >= 3 and tok not in _STOP and not tok.isdigit():
+            if tok in _STOP or tok.isdigit():
+                continue
+            if len(tok) >= 3 or tok in _SHORT_KEEP:
                 words.add(tok)
                 words.update(_SYNONYMS.get(tok, ()))
     return words
@@ -407,7 +426,7 @@ def _department_ok(c: ProductResult, department: str | None, generic: str) -> bo
     if not department:
         return True
     gen = normalize(generic)
-    if gen in ("ovo", "ovos"):
+    if gen in ("ovo", "ovos") or "ovo" in gen.split():
         return True
     blob = _cats_blob(c)
     if not blob:
@@ -423,23 +442,63 @@ def _unwanted_extra(query_words: set[str], name: str) -> bool:
     for group in _EXTRA_FAMILY:
         if any(_has_word(n, t) for t in group) and not (query_words & group):
             return True
+    # Sal de churrasco "com chimichurri" ≠ tempero chimichurri
+    if "chimichurri" in query_words and _has_word(n, "chimichurri"):
+        if n.startswith("sal") or "sal para" in n:
+            return True
+    # Leite em pó: nome precisa do pó (não longa vida / condensado)
+    if "po" in query_words and not _has_word(n, "po"):
+        return True
     return False
 
 
 def _name_matches(query_words: set[str], name: str, strict: bool) -> bool:
     if not query_words:
         return True
-    strong = {w for w in query_words if len(w) >= 4}
+    strong = {w for w in query_words if len(w) >= 4 or w in _SHORT_KEEP}
+    # Tamanho P/M/G e sl não entram no AND (são preferência, não substantivo).
+    strong -= {"p", "m", "g", "sl"}
     if strict and strong:
-        return all(_has_word(name, w) for w in strong)
-    return any(_has_word(name, w) for w in query_words)
+        return all(_word_or_syn(name, w) for w in strong)
+    return any(_word_or_syn(name, w) for w in query_words)
+
+
+def _word_or_syn(name: str, word: str) -> bool:
+    if _has_word(name, word):
+        return True
+    return any(_has_word(name, syn) for syn in _SYNONYMS.get(word, ()))
 
 
 def _primary_word(generic: str) -> str | None:
     for tok in normalize(generic).split():
-        if len(tok) >= 3 and tok not in _STOP:
+        if tok in _STOP:
+            continue
+        if len(tok) >= 3 or tok in _SHORT_KEEP:
             return tok
     return None
+
+
+def _primary_ok(primary: str | None, name: str, query_words: set[str]) -> bool:
+    if not primary:
+        return True
+    if _word_or_syn(name, primary):
+        return True
+    if primary == "papel" and "aluminio" in query_words:
+        return _has_word(name, "aluminio") or _has_word(name, "rolo")
+    return False
+
+
+def _wanted_size(enriched_item: dict) -> str | None:
+    text = normalize(enriched_item.get("item_text") or enriched_item.get("raw") or "")
+    m = re.search(r"\b(pp|gg|xg|p|m|g)\b", text)
+    return m.group(1) if m else None
+
+
+def _size_in_name(name: str, size: str) -> bool:
+    n = f" {normalize(name)} "
+    if re.search(rf"\b{re.escape(size)}\b", n):
+        return True
+    return any(alias in n for alias in _SIZE_ALIASES.get(size, ()))
 
 
 def _passes_gates(
@@ -451,7 +510,7 @@ def _passes_gates(
     strict: bool,
 ) -> bool:
     primary = _primary_word(generic)
-    if primary and not _has_word(c.name, primary):
+    if not _primary_ok(primary, c.name, query_words):
         return False
     if not _name_matches(query_words, c.name, strict=strict):
         return False
@@ -493,6 +552,25 @@ def _filter_relevant(
         filtered = kgish
     elif unit_expected == "un" and unish:
         filtered = unish
+
+    if "pipoca" in query_words:
+        micro = [
+            c for c in filtered
+            if _has_word(c.name, "microondas") or _has_word(c.name, "micro")
+        ]
+        if micro:
+            filtered = micro
+
+    if query_words & {"bife", "patinho"}:
+        steak = [c for c in filtered if _has_word(c.name, "pedaco")]
+        if steak:
+            filtered = steak
+
+    size = _wanted_size(enriched_item)
+    if size:
+        sized = [c for c in filtered if _size_in_name(c.name, size)]
+        if sized:
+            filtered = sized
 
     return filtered
 

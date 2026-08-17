@@ -291,13 +291,14 @@ _KG_WORDS = frozenset({
     "patinho", "acem", "peito", "frango", "coxa", "asa", "bacon",
     "linguica", "pernil", "bisteca", "cenoura", "abobrinha", "batata",
     "banana", "maca", "laranja", "manga", "melao", "tomate", "cebola",
-    "pepino", "alho", "couve", "carne", "uva", "alface",
+    "pepino", "alho", "couve", "carne", "uva",
 })
 
 _FORCE_UN_WORDS = frozenset({
     "molho", "pipoca", "saco", "luva", "leite", "frito", "papel",
     "detergente", "danone", "iogurte", "requeijao", "atum", "sal",
-    "acucar", "cafe", "farofa", "bisnaguinha",
+    "acucar", "cafe", "farofa", "bisnaguinha", "ovo", "ovos",
+    "alface", "refri",
 })
 
 _DAIRY_HINTS = ("leite", "requeijao", "iogurte", "creme de leite", "danone")
@@ -309,7 +310,7 @@ def expected_unit(generic: str, department: str | None) -> str:
         return "un"
     if department == "hortifruti":
         return "kg"
-    if department == "carnes" and "ovo" not in words:
+    if department == "carnes" and not (words & {"ovo", "ovos"}):
         return "kg"
     if department in ("mercearia", "higiene", "emporio", "laticinios"):
         return "un"

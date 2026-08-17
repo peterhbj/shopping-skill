@@ -136,13 +136,19 @@ def _search_results(
     b.search(search)
     results = b.get_results()
     if lactose_free and results and not any(is_lactose_free_label(r.name_lower) for r in results):
-        try:
-            b.search(f"{search} sem lactose")
-            sl = b.get_results()
-            if sl:
-                return sl
-        except Exception:
-            pass
+        seen = {r.name_lower for r in results}
+        for suffix in (" zero lactose", " sem lactose"):
+            try:
+                b.search(f"{search}{suffix}")
+                extra = b.get_results()
+            except Exception:
+                extra = []
+            for r in extra:
+                if r.name_lower not in seen:
+                    results.append(r)
+                    seen.add(r.name_lower)
+            if any(is_lactose_free_label(r.name_lower) and "iogurte" in r.name_lower for r in results):
+                break
     if results:
         return results
     fallback = search.split()[0] if search.split() else search
@@ -184,13 +190,26 @@ def _match_name(results: list[ProductResult], name: str | None) -> ProductResult
     return None
 
 
+def _unit_from_chosen(item: dict, results: list[ProductResult], decision: Decision) -> str:
+    chosen = next((r for r in results if r.index == decision.index), None)
+    if chosen is None:
+        chosen = _match_name(results, decision.name)
+    if chosen is not None:
+        sale = (chosen.sale_unit or "").upper()
+        if sale == "KG" or chosen.sell_by_weight or chosen.price_per_kg:
+            return "kg"
+        if sale == "UN":
+            return "un"
+    return item.get("unit") or "un"
+
+
 def _planned_from_decision(item: dict, decision: Decision, status: str, results: list[ProductResult]) -> dict:
     return {
         "raw": item.get("raw", ""),
         "item_text": item.get("item_text"),
         "search_term": item.get("search_term", ""),
         "qty": item.get("qty", 1),
-        "unit": item.get("unit"),
+        "unit": _unit_from_chosen(item, results, decision),
         "flavor": item.get("flavor"),
         "status": status,
         "chosen_index": decision.index,

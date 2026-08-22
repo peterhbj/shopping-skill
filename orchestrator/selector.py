@@ -2,7 +2,7 @@
 selector.py — Regras determinísticas de seleção de produto.
 
 Recebe: item enriquecido (do enricher) + list[ProductResult] (do browser).
-Retorna: Decision (escolha concreta) ou Ambiguity (precisa LLM).
+Retorna: Decision (só se estiver claro) ou Ambiguity/NoResult (perguntar ao usuário).
 
 Regras em ordem:
   1. Filtro lactose (se household lactose_free + categoria láctea → exige SL)
@@ -49,7 +49,7 @@ class Decision:
 @dataclass
 class Ambiguity:
     """Sinaliza necessidade de decisão humana ou LLM."""
-    kind: str  # "dominance" | "no_match" | "lactose_unavailable"
+    kind: str  # "dominance" | "missing_brand" | "unsure" | "no_match"
     item_raw: str
     reason: str
     candidates: list[ProductResult]
@@ -540,7 +540,9 @@ def _filter_relevant(
         c for c in candidates
         if _passes_gates(c, query_words, department, generic, flavor, strict=True)
     ]
+    relaxed = False
     if not filtered:
+        relaxed = True
         filtered = [
             c for c in candidates
             if _passes_gates(c, query_words, department, generic, flavor, strict=False)
@@ -572,7 +574,7 @@ def _filter_relevant(
         if sized:
             filtered = sized
 
-    return filtered
+    return filtered, relaxed
 
 
 def select(
@@ -602,7 +604,7 @@ def select(
         return NoResult(item_raw=raw, reason="Nenhum resultado da busca")
 
     # ----- 0) Filtro de relevância (nome deve combinar com o item)
-    candidates = _filter_relevant(candidates, enriched_item)
+    candidates, relaxed = _filter_relevant(candidates, enriched_item)
     if not candidates:
         return NoResult(
             item_raw=raw,
@@ -636,6 +638,13 @@ def select(
 
     # ----- 3) Match de marca preferida
     preferred = match_preferred_brand(candidates, preferred_brand) if preferred_brand and not rotation else []
+    if preferred_brand and not rotation and not preferred:
+        return Ambiguity(
+            kind="missing_brand",
+            item_raw=raw,
+            reason=f"Marca preferida ({preferred_brand}) não apareceu na busca",
+            candidates=candidates[:5],
+        )
 
     # ----- 3a) Avaliar dominância de oferta entre preferred vs alternativas
     dominance_alternatives = None
@@ -699,6 +708,14 @@ def select(
     if not candidates:
         return NoResult(item_raw=raw, reason="Sem candidatos após filtros")
 
+    if (rotation or not preferred_brand) and relaxed and len(candidates) > 1:
+        return Ambiguity(
+            kind="unsure",
+            item_raw=raw,
+            reason="Filtro frouxo e mais de um resultado — não chutar",
+            candidates=candidates[:5],
+        )
+
     if rotation or not preferred_brand:
         chosen = min(
             candidates,
@@ -716,16 +733,9 @@ def select(
             total_cost=total,
         )
 
-    # ----- 5) Fallback
-    chosen = candidates[0]
-    packs, total = _packs_needed_for_item(
-        enriched_item, chosen, target_qty, config.pack_optimization, config.max_packs_per_item
-    )
-    return Decision(
-        index=chosen.index,
-        name=chosen.name,
-        price_num=chosen.price_num,
-        rule="first-result-fallback",
-        packs_needed=packs,
-        total_cost=total,
+    return Ambiguity(
+        kind="unsure",
+        item_raw=raw,
+        reason="Sem regra clara para escolher — perguntar",
+        candidates=candidates[:5],
     )

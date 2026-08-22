@@ -42,8 +42,15 @@ _BOLD_HEADER_RE = re.compile(r"^\*\*.*\*\*\s*$")
 _EMOJI_RE = re.compile(r"[\U00010000-\U0010FFFF]")
 _BOLD_INLINE_RE = re.compile(r"\*+([^*]+)\*+")
 _OU_PREFIX_RE = re.compile(r"^ou\s+", re.IGNORECASE)
-_QTY_SUFFIX_RE = re.compile(r"^(.*?)\s+(\d+)\s*$")
-_QTY_PAREN_RE = re.compile(r"^(.*?)\s*\((\d+)\)\s*$")
+_QTY_PAREN_RE = re.compile(r"^(.*?)\s*\(([^)]+)\)\s*$")
+_QTY_SUFFIX_RE = re.compile(
+    r"^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:kgs?|quilos?|g|gr|gramas?)?)\s*$",
+    re.I,
+)
+_QTY_TOKEN_RE = re.compile(
+    r"^(\d+(?:[.,]\d+)?)\s*(kgs?|quilos?|g|gr|gramas?)?$",
+    re.I,
+)
 
 
 def _expand_flavors(part: str) -> list[tuple[str, str | None]]:
@@ -142,20 +149,41 @@ def parse_list_file(path: Path) -> list[tuple[str, str | None, str | None]]:
     return unique
 
 
-def extract_qty_from_raw(raw: str) -> tuple[str, int | None]:
-    """'Leite 12' → ('Leite', 12). 'Sal (2)' → ('Sal', 2). 'Saco (grande)' não é qty."""
+def _parse_qty_token(token: str) -> float | int | None:
+    """'2' → 2. '1Kg' / '1 kg' → 1. '200g' → 0.2. 'lixeira grande' → None."""
+    m = _QTY_TOKEN_RE.match((token or "").strip())
+    if not m:
+        return None
+    n = float(m.group(1).replace(",", "."))
+    unit = (m.group(2) or "").lower()
+    if unit.startswith("k") or unit.startswith("q"):
+        if 0.05 <= n <= 50:
+            return int(n) if n == int(n) else n
+        return None
+    if unit.startswith("g"):
+        kg = n / 1000.0
+        if 0.05 <= kg <= 50:
+            return int(kg) if kg == int(kg) else kg
+        return None
+    if n == int(n) and 1 <= int(n) <= 100:
+        return int(n)
+    return None
+
+
+def extract_qty_from_raw(raw: str) -> tuple[str, float | int | None]:
+    """'Leite 12' → ('Leite', 12). 'Tomate (1Kg)' → ('Tomate', 1). 'Saco (grande)' não é qty."""
     text = raw.strip()
     m = _QTY_PAREN_RE.match(text)
     if m:
+        qty = _parse_qty_token(m.group(2))
         item_text = m.group(1).strip()
-        qty = int(m.group(2))
-        if item_text and 1 <= qty <= 100:
+        if item_text and qty is not None:
             return item_text, qty
     m = _QTY_SUFFIX_RE.match(text)
     if m:
+        qty = _parse_qty_token(m.group(2))
         item_text = m.group(1).strip()
-        qty = int(m.group(2))
-        if item_text and 1 <= qty <= 100:
+        if item_text and qty is not None:
             return item_text, qty
     return text, None
 
@@ -228,7 +256,7 @@ def find_best_kb_match(
 class EnrichedItem:
     raw: str
     item_text: str
-    qty_from_raw: int | None
+    qty_from_raw: float | int | None
     qty: float | int
     unit: str
     generic: str | None
@@ -290,15 +318,20 @@ def _build_search_term(generic: str, preferred_brand: str | None, rotation: bool
 _KG_WORDS = frozenset({
     "patinho", "acem", "peito", "frango", "coxa", "asa", "bacon",
     "linguica", "pernil", "bisteca", "cenoura", "abobrinha", "batata",
-    "banana", "maca", "laranja", "manga", "melao", "tomate", "cebola",
-    "pepino", "alho", "couve", "carne", "uva",
+    "banana", "maca", "laranja", "manga", "tomate", "cebola",
+    "pepino", "alho", "couve", "carne", "chimichurri", "paprica",
+    "calabresa",
 })
 
 _FORCE_UN_WORDS = frozenset({
     "molho", "pipoca", "saco", "luva", "leite", "frito", "papel",
     "detergente", "danone", "iogurte", "requeijao", "atum", "sal",
     "acucar", "cafe", "farofa", "bisnaguinha", "ovo", "ovos",
-    "alface", "refri",
+    "alface", "refri", "uva", "melao", "couve",
+    "palha", "cogumelo", "espaguete", "espagueti", "filtro",
+    "tang", "toddy", "azeitona", "sucrilhos", "bolacha", "biscoito",
+    "torrada", "danoninho", "danete", "danette", "amaciante",
+    "omo", "ype", "rap", "fita", "folhata", "maizena", "rosquinha",
 })
 
 _DAIRY_HINTS = ("leite", "requeijao", "iogurte", "creme de leite", "danone")
@@ -308,14 +341,14 @@ def expected_unit(generic: str, department: str | None) -> str:
     words = set(normalize(generic).split())
     if words & _FORCE_UN_WORDS:
         return "un"
+    if words & _KG_WORDS:
+        return "kg"
     if department == "hortifruti":
         return "kg"
     if department == "carnes" and not (words & {"ovo", "ovos"}):
         return "kg"
     if department in ("mercearia", "higiene", "emporio", "laticinios"):
         return "un"
-    if words & _KG_WORDS:
-        return "kg"
     return "un"
 
 
@@ -326,14 +359,39 @@ def enrich_item(
 ) -> EnrichedItem:
     item_text, qty_from_raw = extract_qty_from_raw(raw)
     item_for_match = re.sub(r"\(.*?\)", "", item_text).strip() or item_text
+    # "Saco de lixo (lixeira pequena)" precisa bater no apelido com o nota,
+    # senão cai no genérico 50l.
+    norm_full = normalize(item_text)
     norm_key = normalize(item_for_match)
 
     apelidos = {normalize(k): v for k, v in (prefs.get("apelidos") or {}).items()}
-    generic = apelidos.get(norm_key) or item_for_match
+    generic = apelidos.get(norm_full) or apelidos.get(norm_key) or item_for_match
     marcas = {normalize(k): v for k, v in (prefs.get("marcas") or {}).items()}
-    brand = marcas.get(normalize(generic)) or marcas.get(norm_key)
+    brand = (
+        marcas.get(normalize(generic))
+        or marcas.get(norm_full)
+        or marcas.get(norm_key)
+    )
     rotation = not bool(brand)
     search_term = _build_search_term(generic, brand, rotation)
+
+    qtys = {normalize(k): v for k, v in (prefs.get("quantidades") or {}).items()}
+    pref_qty = qtys.get(norm_full)
+    if pref_qty is None:
+        pref_qty = qtys.get(norm_key)
+    if pref_qty is None:
+        pref_qty = qtys.get(normalize(generic))
+    if qty_from_raw is not None:
+        qty: float | int = qty_from_raw
+    elif pref_qty is not None:
+        try:
+            qty = float(pref_qty)
+            if qty == int(qty):
+                qty = int(qty)
+        except (TypeError, ValueError):
+            qty = 1
+    else:
+        qty = 1
 
     gen_norm = normalize(generic)
     unit = expected_unit(generic, department)
@@ -349,12 +407,14 @@ def enrich_item(
         notes.append("sem marca — mais barato que passar no filtro")
     if lactose_free:
         notes.append("exigir sem lactose")
+    if qty_from_raw is None and pref_qty is not None:
+        notes.append(f"qty perfil: {qty}")
 
     return EnrichedItem(
         raw=raw,
         item_text=item_text,
         qty_from_raw=qty_from_raw,
-        qty=qty_from_raw or 1,
+        qty=qty,
         unit=unit,
         generic=generic,
         category=department,

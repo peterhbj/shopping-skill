@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 import time
@@ -33,7 +34,7 @@ from .llm.adapter import (
     LLMCallError,
     render_ambiguity_prompt,
 )
-from .report import ItemReport, reconcile_with_cart, render_report
+from .report import ItemReport, reconcile_with_cart, render_duvidas, render_report
 from .selector import (
     Ambiguity,
     Decision,
@@ -112,6 +113,7 @@ def _resolve_ambiguity_llm(
         ambiguity,
         item_text=enriched_item.get("item_text") or enriched_item.get("raw", ""),
         qty=int(enriched_item.get("qty") or 1),
+        user_answer=str(enriched_item.get("user_answer") or ""),
     )
     try:
         reply = adapter.ask_json(prompt, schema_hint={"index": "int", "reason": "string"})
@@ -149,16 +151,7 @@ def _search_results(
                     seen.add(r.name_lower)
             if any(is_lactose_free_label(r.name_lower) and "iogurte" in r.name_lower for r in results):
                 break
-    if results:
-        return results
-    fallback = search.split()[0] if search.split() else search
-    if fallback != search:
-        try:
-            b.search(fallback)
-            return b.get_results()
-        except Exception:
-            return []
-    return []
+    return results
 
 
 def _cand_payload(results: list[ProductResult]) -> list[dict]:
@@ -177,7 +170,19 @@ def _cand_payload(results: list[ProductResult]) -> list[dict]:
     ]
 
 
+_MATCH_STOP = frozenset(
+    "com sem para tipo longa vida embalagem pacote caixa und kg".split()
+)
+
+
+def _name_tokens(name: str) -> set[str]:
+    from .enricher import normalize
+
+    return {t for t in normalize(name).split() if len(t) >= 4 and t not in _MATCH_STOP}
+
+
 def _match_name(results: list[ProductResult], name: str | None) -> ProductResult | None:
+    """Casa pelo nome. Não aceita 'requeijão' qualquer no lugar da marca pedida."""
     if not name:
         return None
     want = name.lower()
@@ -185,8 +190,25 @@ def _match_name(results: list[ProductResult], name: str | None) -> ProductResult
         if r.name_lower == want:
             return r
     for r in results:
-        if want[:48] in r.name_lower or r.name_lower[:48] in want:
+        if want[:48] in r.name_lower:
             return r
+        # "Creme Piracanjuba" ⊂ "Creme S/Lactose Piracanjuba" — não serve
+        if r.name_lower[:48] in want:
+            extra = _name_tokens(name) - _name_tokens(r.name)
+            if not extra:
+                return r
+    want_toks = _name_tokens(name)
+    if not want_toks:
+        return None
+    best = None
+    best_n = 0
+    for r in results:
+        n = len(want_toks & _name_tokens(r.name))
+        if n > best_n:
+            best, best_n = r, n
+    need = min(3, len(want_toks))
+    if best is not None and best_n >= need:
+        return best
     return None
 
 
@@ -221,6 +243,155 @@ def _planned_from_decision(item: dict, decision: Decision, status: str, results:
         "notes": list(decision.notes),
         "candidates": _cand_payload(results),
     }
+
+
+def _index_from_answer(text: str) -> int | None:
+    t = (text or "").strip()
+    if re.fullmatch(r"\d+", t):
+        return int(t)
+    return None
+
+
+def _is_skip_answer(text: str) -> bool:
+    from .enricher import normalize
+
+    t = normalize(text)
+    return t in {"pular", "pula", "skip", "nao", "nao quero"} or t.startswith("pular ")
+
+
+def _apply_answers_file(planned_list: list[dict], answers_path: Path | None) -> int:
+    """Copia respostas do YAML para planned[i].user_answer. Retorna quantas casaram."""
+    n = 0
+    if answers_path and answers_path.is_file():
+        data = yaml.safe_load(answers_path.read_text(encoding="utf-8")) or {}
+        rows = data.get("respostas") if isinstance(data, dict) else None
+        if rows is None and isinstance(data, dict):
+            rows = [{"item": k, "texto": v} for k, v in data.items() if k != "respostas"]
+        if not isinstance(rows, list):
+            rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            needle = str(row.get("item") or row.get("raw") or "").lower()
+            texto = str(row.get("texto") or row.get("answer") or "").strip()
+            if not needle or not texto:
+                continue
+            for it in planned_list:
+                raw = str(it.get("raw") or "").lower()
+                if needle in raw or raw in needle:
+                    it["user_answer"] = texto
+                    n += 1
+                    break
+    return n
+
+
+def _format_duvida_block(it: dict, n: int, total: int) -> str:
+    lines = [
+        "",
+        f"—— {n}/{total}  {it.get('raw') or '?'} ——",
+        f"Busca: {it.get('search_term') or '—'}",
+        f"Qty: {it.get('qty') or 1} {it.get('unit') or ''}".rstrip(),
+        "Por quê: " + " · ".join(it.get("notes") or ["não decidido"]),
+    ]
+    cands = it.get("candidates") or []
+    if cands:
+        lines.append("O que apareceu:")
+        for c in cands[:8]:
+            price = c.get("price_num")
+            price_s = f"R${price:.2f}" if isinstance(price, (int, float)) else "?"
+            lines.append(f"  [{c.get('index')}] {c.get('name')} — {price_s}")
+    else:
+        lines.append("O que apareceu: nada")
+    return "\n".join(lines)
+
+
+def _prompt_duvidas(planned_list: list[dict], input_fn=input) -> int:
+    """Pergunta no terminal. Enter = deixa pra depois. 'pular' = não comprar."""
+    pending = [p for p in planned_list if p.get("status") == "needs_user"]
+    if not pending:
+        return 0
+    print("\n===== Dúvidas — nada disso foi para o carrinho =====", flush=True)
+    print("Responda em uma linha. Enter = deixar. pular = não comprar.", flush=True)
+    answered = 0
+    for i, it in enumerate(pending, 1):
+        print(_format_duvida_block(it, i, len(pending)), flush=True)
+        try:
+            ans = input_fn(
+                f"[{i}/{len(pending)}] O que fazer? "
+            )
+        except EOFError:
+            print("[main] sem terminal — parando as perguntas.", flush=True)
+            break
+        ans = (ans or "").strip()
+        if ans:
+            it["user_answer"] = ans
+            answered += 1
+    return answered
+
+
+def _resolve_answered(
+    b: Browser,
+    planned_list: list[dict],
+    items: list[dict],
+    adapter: LLMAdapter | None,
+    config: SelectorConfig,
+) -> None:
+    by_raw = {str(it.get("raw") or ""): it for it in items}
+    for n, planned in enumerate(planned_list, 1):
+        if planned.get("status") != "needs_user":
+            continue
+        ans = str(planned.get("user_answer") or "").strip()
+        if not ans:
+            continue
+        if _is_skip_answer(ans):
+            planned["status"] = "not_found"
+            planned["notes"] = list(planned.get("notes") or []) + [f"você: pular ({ans})"]
+            print(f"[main] [resolve {n}] {planned.get('raw')} → pulado", flush=True)
+            continue
+        idx = _index_from_answer(ans)
+        if idx is not None:
+            hit = next(
+                (c for c in (planned.get("candidates") or []) if c.get("index") == idx),
+                None,
+            )
+            if hit and hit.get("name"):
+                price = float(hit.get("price_num") or 0)
+                qty = planned.get("qty") or 1
+                unit = (planned.get("unit") or "un").lower()
+                packs = 1 if unit in ("kg", "g") else int(qty) if float(qty) == int(float(qty)) else 1
+                planned.update(
+                    {
+                        "status": "decided",
+                        "chosen_index": idx,
+                        "chosen_name": hit["name"],
+                        "price_num": price,
+                        "packs_needed": packs,
+                        "total_cost": round(price * (1 if unit in ("kg", "g") else packs), 2),
+                        "rule": "user-index",
+                        "notes": list(planned.get("notes") or []) + [f"você escolheu [{idx}]"],
+                    }
+                )
+                print(f"[main] [resolve {n}] {planned.get('raw')} → [{idx}] {hit['name'][:50]}", flush=True)
+                continue
+        item = by_raw.get(str(planned.get("raw") or "")) or {}
+        item = dict(item)
+        item["user_answer"] = ans
+        extra = ans.strip()
+        search = (planned.get("search_term") or item.get("search_term") or "").strip()
+        search = re.sub(r"\s+\d+$", "", search).strip()
+        if not extra.isdigit() and extra.lower() not in search.lower():
+            search = f"{search} {extra}".strip()
+        print(f"[main] [resolve {n}] {planned.get('raw')} ← {ans[:50]}", flush=True)
+        try:
+            results = _search_results(
+                b, search, lactose_free=bool(item.get("lactose_free")),
+            )
+        except Exception:
+            results = []
+        planned["search_term"] = search
+        planned_list[n - 1] = _resolve_needs_grok(
+            planned, item, results, adapter, config
+        )
 
 
 def _plan_one(b: Browser, item: dict, config: SelectorConfig) -> dict:
@@ -258,10 +429,11 @@ def _plan_one(b: Browser, item: dict, config: SelectorConfig) -> dict:
     base["candidates"] = _cand_payload(results)
     outcome = select(item, results, config)
     if isinstance(outcome, NoResult):
+        base["status"] = "needs_user"
         base["notes"] = [outcome.reason]
         return base
     if isinstance(outcome, Ambiguity):
-        base["status"] = "needs_grok"
+        base["status"] = "needs_user"
         base["ambiguity_kind"] = outcome.kind
         base["ambiguity_reason"] = outcome.reason
         if outcome.preferred:
@@ -299,19 +471,20 @@ def _resolve_needs_grok(
         preferred=pref,
     )
     if adapter is None:
-        decision = _auto_resolve_ambiguity(ambiguity, item, config)
-        return _planned_from_decision(item, decision, "ambiguous_auto", results)
+        planned["notes"] = list(planned.get("notes") or []) + ["sem LLM e sem chute"]
+        planned["status"] = "needs_user"
+        return planned
     idx, reason = _resolve_ambiguity_llm(ambiguity, item, adapter)
     if idx is None:
-        decision = _auto_resolve_ambiguity(ambiguity, item, config)
-        decision.notes.append(f"LLM falhou → auto: {reason}")
-        return _planned_from_decision(item, decision, "ambiguous_auto", results)
+        planned["notes"] = list(planned.get("notes") or []) + [f"LLM falhou: {reason}"]
+        planned["status"] = "needs_user"
+        return planned
     chosen = next((r for r in results if r.index == idx), None) or _match_name(results, None)
     chosen = chosen or next((r for r in cands if r.index == idx), None)
     if not chosen:
-        decision = _auto_resolve_ambiguity(ambiguity, item, config)
-        decision.notes.append("índice LLM inválido → auto")
-        return _planned_from_decision(item, decision, "ambiguous_auto", results)
+        planned["notes"] = list(planned.get("notes") or []) + ["índice LLM inválido"]
+        planned["status"] = "needs_user"
+        return planned
     packs, total = _packs_for(chosen, item, config)
     decision = Decision(
         index=chosen.index,
@@ -328,7 +501,7 @@ def _resolve_needs_grok(
 def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) -> ItemReport:
     raw = planned.get("raw") or item.get("raw", "")
     qty = planned.get("qty") or item.get("qty") or 1
-    if planned.get("status") in (None, "not_found", "needs_grok"):
+    if planned.get("status") in (None, "not_found", "needs_grok", "needs_user"):
         return _blank_report(raw, "not_found", planned.get("notes") or ["sem decisão"], qty)
     search = (planned.get("search_term") or item.get("search_term") or "").strip()
     try:
@@ -336,8 +509,12 @@ def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) ->
     except Exception as e:
         return _blank_report(raw, "not_found", [f"erro navegação: {e}"], qty)
     chosen = _match_name(results, planned.get("chosen_name"))
-    if chosen is None and planned.get("chosen_index") is not None:
-        chosen = next((r for r in results if r.index == planned["chosen_index"]), None)
+    if chosen is None and planned.get("chosen_name"):
+        try:
+            results = _search_results(b, planned["chosen_name"])
+        except Exception:
+            results = []
+        chosen = _match_name(results, planned.get("chosen_name"))
     if chosen is None:
         return _blank_report(raw, "not_found", ["escolha não está mais nos resultados"], qty)
     packs = int(planned.get("packs_needed") or 1)
@@ -354,16 +531,17 @@ def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) ->
         notes=list(planned.get("notes") or []),
     )
     unit = planned.get("unit") or item.get("unit")
+    by_weight = (unit or "").lower().strip() in ("kg", "g", "grama", "gramas")
     if need == 0 and (state.get("has_minus") or current > 0):
         decision.notes.append("já no alvo — sem clique extra")
         return _decision_to_report(
             raw, decision, qty, planned.get("status") or "ok", unit=unit
         )
     try:
-        set_result = b.set_qty(chosen.index, need)
-        if set_result.get("rate_limit_pause"):
-            print("[main] ack incompleto — pausa 4s", flush=True)
-            b.page.wait_for_timeout(4000)
+        set_result = b.set_qty(chosen.index, need, by_weight=by_weight)
+        if set_result.get("rate_limit_pause") and not by_weight:
+            print("[main] ack incompleto — pausa 1s", flush=True)
+            b.page.wait_for_timeout(1000)
         if not set_result.get("success") and set_result.get("error") == "no_button":
             return _decision_to_report(
                 raw, decision, qty, "failed_to_add",
@@ -372,7 +550,7 @@ def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) ->
             )
         if not set_result.get("success"):
             decision.notes.append(f"ack do card falhou ({set_result.get('error')}); conferir no carrinho")
-        b.page.wait_for_timeout(800)
+        b.page.wait_for_timeout(120)
     except Exception as e:
         return _decision_to_report(
             raw, decision, qty, "failed_to_add",
@@ -394,6 +572,7 @@ def run(
     keep_open: bool = True,
     command: str = "run",
     run_file: Path | None = None,
+    answers_path: Path | None = None,
 ) -> int:
     started = time.time()
     run_file = run_file or Path("run.json")
@@ -461,10 +640,10 @@ def run(
             badge_before = None
 
         planned_list: list[dict]
-        if command == "apply" and run_file.is_file():
+        if command in ("apply", "resolve") and run_file.is_file():
             payload = json.loads(run_file.read_text(encoding="utf-8"))
             planned_list = payload.get("items") or []
-            print(f"[main] apply a partir de {run_file} ({len(planned_list)} itens)", flush=True)
+            print(f"[main] {command} a partir de {run_file} ({len(planned_list)} itens)", flush=True)
         else:
             planned_list = []
             for n, item in enumerate(items, 1):
@@ -474,39 +653,6 @@ def run(
                     flush=True,
                 )
                 planned_list.append(_plan_one(b, item, config))
-
-            if command in ("run", "plan") and use_llm and adapter is not None:
-                for n, (item, planned) in enumerate(zip(items, planned_list), 1):
-                    if planned.get("status") != "needs_grok":
-                        continue
-                    print(f"[main] [grok {n}] {planned.get('raw', '')[:40]}", flush=True)
-                    try:
-                        results = _search_results(
-                            b,
-                            planned.get("search_term") or "",
-                            lactose_free=bool(item.get("lactose_free")),
-                        )
-                    except Exception:
-                        results = []
-                    planned_list[n - 1] = _resolve_needs_grok(
-                        planned, item, results, adapter, config
-                    )
-            elif command == "run" and not use_llm:
-                for n, (item, planned) in enumerate(zip(items, planned_list), 1):
-                    if planned.get("status") != "needs_grok":
-                        continue
-                    try:
-                        results = _search_results(
-                            b,
-                            planned.get("search_term") or "",
-                            lactose_free=bool(item.get("lactose_free")),
-                        )
-                    except Exception:
-                        results = []
-                    planned_list[n - 1] = _resolve_needs_grok(
-                        planned, item, results, None, config
-                    )
-
             run_file.write_text(
                 json.dumps(
                     {"meta": enriched.get("meta"), "items": planned_list},
@@ -515,9 +661,52 @@ def run(
                 ),
                 encoding="utf-8",
             )
-            print(f"[main] plano salvo em {run_file}", flush=True)
+            print(f"[main] plano salvo em {run_file} (sem LLM, sem clique nas dúvidas)", flush=True)
 
-        if command == "plan" or dry_run:
+        if command == "resolve":
+            matched = _apply_answers_file(planned_list, answers_path)
+            print(f"[main] {matched} resposta(s) casadas", flush=True)
+            _resolve_answered(b, planned_list, items, adapter, config)
+            run_file.write_text(
+                json.dumps(
+                    {"meta": enriched.get("meta"), "items": planned_list},
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+        pending = [p for p in planned_list if p.get("status") == "needs_user"]
+        if pending and command in ("plan", "run") and sys.stdin.isatty():
+            n_ans = _prompt_duvidas(planned_list)
+            if n_ans:
+                _resolve_answered(b, planned_list, items, adapter, config)
+                run_file.write_text(
+                    json.dumps(
+                        {"meta": enriched.get("meta"), "items": planned_list},
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            pending = [p for p in planned_list if p.get("status") == "needs_user"]
+
+        if pending:
+            duvidas_path = Path("duvidas.md")
+            duvidas_path.write_text(render_duvidas(planned_list), encoding="utf-8")
+            print(
+                f"[main] {len(pending)} dúvida(s) ainda em {duvidas_path}.",
+                flush=True,
+            )
+            if command != "apply":
+                b.keep_open = False
+
+        stop_apply = (
+            command in ("plan", "resolve")
+            or dry_run
+            or bool(pending)
+        )
+        if stop_apply:
             for item, planned in zip(items, planned_list):
                 status = planned.get("status") or "not_found"
                 if status == "decided":
@@ -542,7 +731,7 @@ def run(
                     item_reports.append(
                         _blank_report(
                             planned.get("raw") or "",
-                            "not_found" if status != "needs_grok" else "ambiguous_unresolved",
+                            "needs_user" if status in ("needs_user", "needs_grok") else "not_found",
                             planned.get("notes") or [],
                             planned.get("qty") or 1,
                         )
@@ -573,20 +762,21 @@ def run(
         except Exception:
             badge_after = None
 
-    elapsed = time.time() - started
+        # Relatório antes do keep_open — senão só grava depois de 30 min.
+        elapsed = time.time() - started
+        report_md = render_report(
+            list_path=str(list_path),
+            profile_path=str(profile_path),
+            items=item_reports,
+            cart_badge_before=badge_before,
+            cart_badge_after=badge_after,
+            elapsed_s=elapsed,
+            cart_lines_count=cart_lines_count if do_click else None,
+            cart_matched=cart_matched if do_click else None,
+        )
+        report_out.write_text(report_md, encoding="utf-8")
+        print(f"[main] Relatório salvo em {report_out} ({elapsed:.1f}s total)", flush=True)
 
-    report_md = render_report(
-        list_path=str(list_path),
-        profile_path=str(profile_path),
-        items=item_reports,
-        cart_badge_before=badge_before,
-        cart_badge_after=badge_after,
-        elapsed_s=elapsed,
-        cart_lines_count=cart_lines_count if do_click else None,
-        cart_matched=cart_matched if do_click else None,
-    )
-    report_out.write_text(report_md, encoding="utf-8")
-    print(f"[main] Relatório salvo em {report_out} ({elapsed:.1f}s total)", flush=True)
     return 0
 
 
@@ -635,8 +825,8 @@ def main() -> int:
         "command",
         nargs="?",
         default="run",
-        choices=["plan", "apply", "run"],
-        help="plan=só busca, apply=só clica run.json, run=plan+grok+apply",
+        choices=["plan", "apply", "run", "resolve"],
+        help="plan=busca sem chute; resolve=suas respostas+LLM; apply=clica; run=plan e para se houver dúvida",
     )
     p.add_argument("--list", required=True, type=Path, help="Lista de compras MD/TXT")
     p.add_argument("--profile", type=Path, default=Path("preferencias.yaml"), help="preferencias.yaml")
@@ -659,6 +849,8 @@ def main() -> int:
                    help="Mantém o browser aberto no final para você fechar a compra")
     p.add_argument("--no-keep-open", action="store_true",
                    help="Fecha o browser ao terminar")
+    p.add_argument("--answers", type=Path, default=None,
+                   help="respostas.yaml para o comando resolve")
     args = p.parse_args()
 
     launch_own = not args.cdp
@@ -672,6 +864,7 @@ def main() -> int:
         keep_open=(not args.no_keep_open),
         command=args.command,
         run_file=args.run_file,
+        answers_path=args.answers,
     )
 
 

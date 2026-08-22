@@ -657,14 +657,14 @@ products:
     orders_count: 9/10
     preferred_brand: null
     alternate_brands: []
-    typical_qty: 1.5
+    typical_qty: 1.0
     unit: kg
     qty_range: [0.9, 3.0]
     package_size: "kg"
     lactose_free: false
     rotation: true
     restock_cycle: monthly
-    notes: "Debora ou Carmem; ~1.5kg"
+    notes: "Debora ou Carmem; usuário pede 1kg (média histórica era 1.5)"
 
   - generic: "pepino"
     category: hortifruti

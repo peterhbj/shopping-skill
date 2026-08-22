@@ -7,7 +7,8 @@
  */
 
 (() => {
-  if (window.__ANDORINHA_HELPERS_V5__) return;
+  if (window.__ANDORINHA_HELPERS_V6__) return;
+  window.__ANDORINHA_HELPERS_V6__ = true;
   window.__ANDORINHA_HELPERS_V5__ = true;
   window.__ANDORINHA_HELPERS_V4__ = true;
   window.__ANDORINHA_HELPERS_V3__ = true;
@@ -321,8 +322,6 @@ window.andorinha_click_decrease = function (index) {
       document.querySelector('[id*="cart-drawer"]'),
       document.querySelector('[class*="cart-drawer-bottom-fixed"]') &&
         document.querySelector('[class*="cart-drawer-bottom-fixed"]').closest('aside, [role="dialog"], div'),
-      document.querySelector("aside"),
-      document.querySelector('[role="dialog"]'),
     ].filter(Boolean);
 
     const itemSels = [
@@ -355,26 +354,29 @@ window.andorinha_click_decrease = function (index) {
       if (!name) {
         name = texts.find((t) => t.length > 8 && !/^R\$/.test(t) && !/^\d+$/.test(t)) || "";
       }
-      const priceText = texts.find((t) => /^R\$\s*[\d.,]+$/.test(t)) || "";
-      const price = priceText
-        ? parseFloat(priceText.replace("R$", "").replace(/\./g, "").replace(",", ".").trim())
-        : null;
+      const prices = texts
+        .filter((t) => /^R\$\s*[\d.,]+$/.test(t))
+        .map((t) => parseFloat(t.replace("R$", "").replace(/\./g, "").replace(",", ".").trim()))
+        .filter((n) => Number.isFinite(n));
       const qtyHit = texts.find((t) => {
         const n = parseFloat(String(t).replace(",", "."));
         return /^\d+(?:[.,]\d+)?$/.test(t) && n > 0 && n <= 99 && n !== 360;
       });
       const qty = qtyHit ? parseFloat(String(qtyHit).replace(",", ".")) : 1;
+      const unit = prices.length ? Math.min(...prices) : null;
+      const lineTotal = prices.length ? Math.max(...prices) : null;
       return {
         name,
         name_lower: name.toLowerCase(),
         qty,
-        price_num: Number.isFinite(price) ? price : null,
+        price_num: unit,
+        line_total: lineTotal,
       };
     }
 
     let lines = nodes.map(lineFrom).filter((l) => l.name);
 
-    if (!lines.length && window.APOLLO_STATE) {
+    if (!lines.length && window.APOLLO_STATE && !/\/busca\//.test(location.pathname || "")) {
       const apolloLines = [];
       for (const v of Object.values(window.APOLLO_STATE)) {
         if (!v || typeof v !== "object") continue;

@@ -208,7 +208,9 @@ def _shell_quote(arg: str) -> str:
     return arg
 
 
-def render_ambiguity_prompt(template_path: Path, ambiguity, item_text: str, qty: int) -> str:
+def render_ambiguity_prompt(
+    template_path: Path, ambiguity, item_text: str, qty: int, user_answer: str = ""
+) -> str:
     template = template_path.read_text(encoding="utf-8")
     pref = ambiguity.preferred
     alts = [c for c in ambiguity.candidates if pref is None or c.index != pref.index]
@@ -228,4 +230,5 @@ def render_ambiguity_prompt(template_path: Path, ambiguity, item_text: str, qty:
         reason=ambiguity.reason,
         preferred=pref_str,
         alternatives=alts_str,
+        user_answer=user_answer.strip() or "(o cliente ainda não falou)",
     )

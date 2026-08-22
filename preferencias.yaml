@@ -1,5 +1,5 @@
-# Preferências curtas. A lista manda o quê e quanto.
-# Se o script errar a marca, acrescente uma linha em marcas ou apelidos.
+# Regras vivas. Lista sem número usa quantidades daqui.
+# Número na lista (Sal (2), Leite 12) manda nesta compra.
 
 sem_lactose: true
 
@@ -8,7 +8,18 @@ apelidos:
   feijao normal: feijão carioca
   linguica fresca: linguiça toscana
   linguica defumada: linguiça calabresa
-  suquinho: suco caixinha
+  suquinho: fruit shoot
+  suco caixinha: fruit shoot
+  danone: danone morango
+  iogurte: danone morango
+  pipoca: pipoca microondas
+  chimichurri: chimichurri granel
+  chimichurri andorinha granel: chimichurri granel
+  melao: melão unidade
+  melao unidade: melão unidade
+  danone 1 5kg morango: danone morango
+  danone 1 25kg morango: danone morango
+  danone 15kg morango: danone morango
   lanches das criancas: lanchinho elma chips
   lanches criancas: lanchinho elma chips
   bife: patinho
@@ -18,31 +29,223 @@ apelidos:
   saco de lixo lixeira grande: saco de lixo 50l
   sobre coxa com coxa: coxa sobrecoxa
   file de frango: peito de frango
-  luva p: luva de borracha p
+  luva p: luva danny confort p
   couve: couve manteiga
   ovo: ovos
   pao: bisnaguinha
   candida: água sanitária
-  agua: água mineral
+  agua: água mineral com gás
+  cafe: café vácuo
+  acucar: açúcar cristal
+  banana: banana prata
+  uva: uva thompson
+  alface: alface americana
+  farofa: farofa 400g
+  creme de leite: creme de leite zero lactose
+  requeijao: requeijão zero lactose
+  leite em po: leite em pó zero lactose
+  cogumelo: cogumelo champignon
+  espagueti: espaguete
+  filtro melita: filtro de café
+  toddy em po: toddy
+  toddy: toddy
+  azeitona: azeitona verde
+  sucrilhos: sucrilhos
+  bolacha maizena de coco: biscoito maizena coco
+  bolacha rosquinha de coco: rosquinha de coco
+  folhata bolacha creme cracker: cream cracker folhata
+  folhata: cream cracker folhata
+  rap 10 integral: rap 10 integral
+  farinha panco: farinha panko
+  farinha panko: farinha panko
+  batata palha: batata palha
+  danoninho: danoninho
+  danete chocolate preto e branco: danette
+  danete: danette
+  pao de forma de coco panco: pão de forma coco
+  sabao liquido omo: sabão líquido
+  sabao em po ype: sabão em pó
+  candida g: água sanitária
+  amaciante: amaciante
+  saco de lixo lixeira pequena: saco de lixo 15l
+  fita dental: fita dental
 
 marcas:
   arroz: Camil
   cafe: 3 Corações
+  cafe vacuo: 3 Corações
   leite: Ninho Levinho
   atum: Coqueiro
   papel higienico: Personal Vip
   papel toalha: Social Clean
   refri: Bioleve
-  pipoca: Yoki
+  pipoca: Da Terrinha
+  pipoca microondas: Da Terrinha
+  danone: Danone
+  danone morango: Danone
+  suquinho: Maguary
+  fruit shoot: Maguary
   farofa: Yoki
+  farofa 400g: Yoki
   queijo ralado: Vigor
   bisnaguinha: Kim
   acucar: União
+  acucar cristal: União
+  creme de leite: Italac
+  creme de leite zero lactose: Italac
+  molho de tomate: Heinz
+  requeijao: Danone
+  requeijao zero lactose: Danone
+  feijao carioca: Camil
+  feijao normal: Camil
+  sal: Cisne
+  oleo de soja: Liza
+  oleo normal: Liza
+  agua: Bioleve
+  agua mineral com gas: Bioleve
+  alface: Tanimaru
+  alface americana: Tanimaru
+  ovo: Shinoda
+  ovos: Shinoda
+  linguica toscana: Seara
+  linguica fresca: Seara
+  linguica calabresa: Seara
+  linguica defumada: Seara
+  bacon: Sadia
+  alho frito: Camanducaia
+  papel aluminio: Lumipam
+  luva p: Danny
+  luva danny confort p: Danny
+  lanchinho elma chips: Elma Chips
+  lanches das criancas: Elma Chips
+  cogumelo: Vale Fértil
+  cogumelo champignon: Vale Fértil
+  espaguete: Adria
+  espagueti: Adria
+  filtro de cafe: Melitta
+  filtro melita: Melitta
+  tang: Tang
+  toddy: Toddy
+  azeitona: Vale Fértil
+  azeitona verde: Vale Fértil
+  sucrilhos: Kellogg's
+  biscoito maizena coco: Panco
+  bolacha maizena de coco: Panco
+  rosquinha de coco: Panco
+  cream cracker folhata: Adria
+  folhata: Adria
+  torrada: Marilan
+  rap 10 integral: Rap 10
+  farinha panko: Panko
+  farinha panco: Panko
+  batata palha: Yoki
+  danoninho: Danoninho
+  danette: Danette
+  pao de forma coco: Panco
+  pao de forma de coco panco: Panco
+  sabao liquido: Omo
+  sabao liquido omo: Omo
+  sabao em po: Ypê
+  sabao em po ype: Ypê
+  detergente: Ypê
+  amaciante: Downy
+  saco de lixo 15l: Bot
+
+# Qty padrão (un ou kg). Sabor da lista (Refri: limão, mexerica) = essa qty em CADA linha.
+# Em kg (carne/hortifruti granel) isto é o peso alvo na balança — o site só recebe 1 clique.
+quantidades:
+  arroz: 1
+  oleo normal: 1
+  leite em po: 1
+  creme de leite: 6
+  molho de tomate: 10
+  queijo ralado: 6
+  acucar: 2
+  agua: 12
+  refri: 6
+  pipoca: 1
+  requeijao: 2
+  atum: 6
+  sal: 2
+  bisnaguinha: 4
+  farofa: 2
+  cafe: 2
+  lanches das criancas: 2
+  danone: 1
+  iogurte: 1
+  suquinho: 12
+  feijao normal: 2
+  leite: 12
+  cogumelo: 2
+  espaguete: 4
+  espagueti: 4
+  filtro de cafe: 1
+  filtro melita: 1
+  tang: 6
+  toddy: 1
+  azeitona: 3
+  sucrilhos: 1
+  biscoito maizena coco: 2
+  bolacha maizena de coco: 2
+  rosquinha de coco: 1
+  cream cracker folhata: 1
+  torrada: 2
+  rap 10 integral: 1
+  farinha panko: 1
+  batata palha: 2
+  danoninho: 1
+  danette: 1
+  pao de forma coco: 1
+  sabao liquido: 1
+  sabao em po: 1
+  detergente: 6
+  candida: 1
+  candida g: 1
+  amaciante: 1
+  saco de lixo 15l: 5
+  saco de lixo lixeira pequena: 5
+  fita dental: 1
+  carne de panela: 2
+  bife: 1.8
+  linguica fresca: 3
+  bacon: 0.5
+  linguica defumada: 0.55
+  ovo: 2
+  coxinha da asa: 1.5
+  sobre coxa com coxa: 2.1
+  file de frango: 4
+  carne moida: 2
+  papel higienico: 2
+  papel toalha: 2
+  saco de lixo: 1
+  saco de lixo lixeira grande: 1
+  saco de lixo 50l: 1
+  papel aluminio: 2
+  luva p: 2
+  alface: 4
+  couve: 2
+  cenoura: 1
+  abobrinha: 2.5
+  tomate: 1
+  pepino: 2.5
+  alho: 1
+  batata: 2
+  chimichurri: 0.2
+  chimichurri granel: 0.2
+  chimichurri andorinha granel: 0.2
+  paprica defumada: 0.3
+  alho frito: 3
+  banana: 2
+  maca: 1
+  laranja: 2
+  manga: 3.5
+  melao: 1
+  uva: 2
 
 config:
   llm_model: grok-4.6
   llm_timeout_s: 120
   dominance_threshold_pct: 15
   browser:
-    click_settle_ms: 1200
-    nav_timeout_ms: 15000
+    click_settle_ms: 250
+    nav_timeout_ms: 10000

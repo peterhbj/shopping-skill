@@ -93,6 +93,90 @@ class ReportTotalsTest(unittest.TestCase):
         self.assertIn("Total no carrinho (linhas lidas)", md)
         self.assertIn("14.58", md)
 
+    def test_qty_column_does_not_say_12x12(self):
+        items = [
+            ItemReport(
+                raw="Leite (12)",
+                status="ok",
+                chosen_name="Leite Longa Vida S/Lactose Ninho Levinho Semidesnatado 1l",
+                chosen_index=0,
+                rule="x",
+                qty_target=12,
+                packs_added=12,
+                unit_price=8.49,
+                total_cost=101.88,
+                notes=[],
+                unit="un",
+            )
+        ]
+        md = render_report("l", "p", items, None, None, 1.0)
+        self.assertNotIn("12×12", md)
+        self.assertIn("| 12 |", md)
+
+    def test_match_name_does_not_prefer_shorter_without_lactose(self):
+        from orchestrator.browser import ProductResult
+        from orchestrator.main import _match_name
+
+        def pr(i, name):
+            return ProductResult.from_dict(
+                {
+                    "index": i,
+                    "name": name,
+                    "price_num": 1,
+                    "price_per_base_unit": 1,
+                    "price_base_dim": "un",
+                    "sale_unit": "UN",
+                }
+            )
+
+        regular = pr(0, "Creme De Leite Piracanjuba Cx 200g")
+        sl = pr(7, "Creme De Leite S/Lactose Piracanjuba Cx 200g")
+        hit = _match_name([regular, sl], "Creme De Leite S/Lactose Piracanjuba Cx 200g")
+        self.assertIsNotNone(hit)
+        self.assertIn("Lactose", hit.name)
+
+    def test_requeijao_does_not_match_other_brand(self):
+        from orchestrator.report import _names_match
+
+        self.assertFalse(
+            _names_match(
+                "Requeijão Polenghi Zero Lactose 200G",
+                "Requeijão Cremoso Danone Tradicional 200G",
+            )
+        )
+        self.assertTrue(
+            _names_match(
+                "Requeijão Polenghi Zero Lactose 200G",
+                "Requeijão Polenghi Zero Lactose 200G",
+            )
+        )
+
+    def test_drawer_line_total_not_multiplied_again(self):
+        items = [
+            ItemReport(
+                raw="Leite (12)",
+                status="ok",
+                chosen_name="Leite Longa Vida S/Lactose Ninho Levinho Semidesnatado 1l",
+                chosen_index=0,
+                rule="x",
+                qty_target=12,
+                packs_added=12,
+                unit_price=8.49,
+                total_cost=101.88,
+                notes=[],
+                unit="un",
+            )
+        ]
+        lines = [
+            {
+                "name": "Leite Longa Vida S/Lactose Ninho Levinho Semidesnatado 1l",
+                "qty": 12,
+                "price_num": 101.88,
+            }
+        ]
+        out, _ = reconcile_with_cart(items, lines)
+        self.assertAlmostEqual(out[0].cart_line_total, 101.88, places=2)
+
     def test_unit_line_multiplies_cart_qty(self):
         items = [
             ItemReport(

@@ -369,8 +369,7 @@ class Browser:
 
     def search(self, query: str) -> None:
         # Já usa URL direta (/busca/...), não a barra de pesquisa.
-        self.wait_network_quiet(2500)
-        url = f"{self.BASE_URL}/busca/{urllib.parse.quote(query)}"
+        url = f"{self.BASE_URL}/busca/{urllib.parse.quote(query, safe='')}"
         print(f"[browser] goto {url}", flush=True)
         prev_url = ""
         try:
@@ -378,6 +377,7 @@ class Browser:
         except Exception:
             pass
         self._sense_hits = []
+        self._search_had_cards = False
 
         def _on_sense(resp) -> None:
             try:
@@ -436,7 +436,8 @@ class Browser:
                 try:
                     loc = self.page.locator(sel)
                     if loc.count() > 0:
-                        self.page.wait_for_timeout(400)
+                        self.page.wait_for_timeout(120)
+                        self._search_had_cards = True
                         print(f"[browser] cards via '{sel}' (count≈{loc.count()})", flush=True)
                         return
                 except Exception:
@@ -447,7 +448,7 @@ class Browser:
     def _ensure_helpers(self) -> None:
         """Re-injeta helpers caso add_init_script não tenha pegado a página."""
         try:
-            loaded = self.page.evaluate("() => !!window.__ANDORINHA_HELPERS_V5__")
+            loaded = self.page.evaluate("() => !!window.__ANDORINHA_HELPERS_V6__")
         except Exception:
             loaded = False
         if not loaded:
@@ -460,6 +461,9 @@ class Browser:
     # ---------------------------------------------------------------------- API
 
     def get_results(self) -> list[ProductResult]:
+        if not getattr(self, "_search_had_cards", True) and not self._sense_hits:
+            print("[browser] get_results: busca sem cards — não reuso DOM antigo", flush=True)
+            return []
         self._ensure_helpers()
         try:
             payload = self.page.evaluate("() => andorinha_get_results()")
@@ -511,7 +515,13 @@ class Browser:
         except Exception:
             pass
 
-    def set_qty(self, index: int, target_qty: int, max_attempts_per_step: int = 8) -> dict:
+    def set_qty(
+        self,
+        index: int,
+        target_qty: int,
+        max_attempts_per_step: int = 8,
+        by_weight: bool = False,
+    ) -> dict:
         """
         Adiciona clicando N vezes e confere se qty/badge mudaram.
         Não trata clique sem efeito como sucesso (login ausente, seletor quebrado).
@@ -561,7 +571,8 @@ class Browser:
                     previous_qty=int(prev) if isinstance(prev, int) else qty_before,
                     first_add=first_add,
                     cart_ok=cart_ok,
-                    timeout_s=8.0,
+                    timeout_s=1.2 if by_weight else 2.5,
+                    by_weight=by_weight,
                 )
             finally:
                 try:
@@ -594,7 +605,10 @@ class Browser:
                 }
             already_in_cart = True
 
-        self.wait_network_quiet(3000)
+        try:
+            self.page.wait_for_timeout(150)
+        except Exception:
+            pass
         st = self.card_state(index)
         qty_now = int(st.get("qty") or 0)
         try:
@@ -643,11 +657,12 @@ class Browser:
         previous_qty: int,
         first_add: bool,
         cart_ok: dict,
-        timeout_s: float = 8.0,
+        timeout_s: float = 2.5,
+        by_weight: bool = False,
     ) -> bool:
         """
         Ack = card no modo stepper (has_minus) + qty estável em 2 leituras.
-        HTTP 2xx de URL de carrinho confirma; sem ele ainda aceita layout estável.
+        Item em kg: has_minus basta (o stepper não mostra 1).
         """
         deadline = time.time() + timeout_s
         last_qty: int | None = None
@@ -655,7 +670,10 @@ class Browser:
             st = self.card_state(index)
             qty = int(st.get("qty") or 0)
             has_minus = bool(st.get("has_minus"))
-            if first_add:
+            if by_weight:
+                layout_ok = has_minus
+                qty_ok = True
+            elif first_add:
                 layout_ok = has_minus
                 qty_ok = qty >= 1
             else:
@@ -664,10 +682,12 @@ class Browser:
             if layout_ok and qty_ok and last_qty == qty:
                 return True
             last_qty = qty
-            time.sleep(0.3)
+            time.sleep(0.12)
         st = self.card_state(index)
+        if by_weight:
+            return bool(st.get("has_minus")) or bool(cart_ok.get("v"))
         if bool(st.get("has_minus")) and int(st.get("qty") or 0) > previous_qty:
-            return bool(cart_ok.get("v"))
+            return True
         return False
 
     def open_cart(self) -> None:
@@ -677,8 +697,7 @@ class Browser:
         except Exception as e:
             print(f"[browser] open_cart: {e}", flush=True)
         try:
-            self.page.wait_for_timeout(1500)
-            self.wait_network_quiet(4000)
+            self.page.wait_for_timeout(400)
         except Exception:
             pass
 

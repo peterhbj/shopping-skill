@@ -4,65 +4,88 @@
 - [ ] Arroz
 - [ ] Óleo normal
 - [ ] Leite em pó
-- [ ] Creme de leite
-- [ ] Molho de tomate
-- [ ] Queijo ralado
-- [ ] Açúcar
-- [ ] Água
-- [ ] Refri
-- [ ] Pipoca
-- [ ] Requeijão
-- [ ] Atum
+- [ ] Creme de leite (6)
+- [ ] Molho de tomate (10)
+- [ ] Queijo ralado (6)
+- [ ] Açúcar (2)
+- [ ] Água (12)
+- [ ] Refri: limão, mexerica
+- [ ] Pipoca microondas: manteiga, natural com sal, bacon
+- [ ] Requeijão (2)
+- [ ] Atum (6)
 - [ ] Sal (2)
-- [ ] Bisnaguinha
-- [ ] Farofa
-- [ ] Café
-- [ ] Lanches das crianças
-- [ ] Danone
-- [ ] Suquinho
-- [ ] Iogurte
-- [ ] Feijão normal (2)
-- [ ] Leite
+- [ ] Bisnaguinha (4)
+- [ ] Farofa (2)
+- [ ] Café (2)
+- [ ] Lanches das crianças (2)
+- [ ] Danone 1,25kg morango
+- [ ] Suquinho (12)
+- [ ] Feijão normal (3)
+- [ ] Leite (12)
+- [ ] Cogumelo (5)
+- [ ] Espagueti (3)
+- [ ] Filtro melita (2)
+- [ ] Tang 
+- [ ] Toddy em pó
+- [ ] Azeitona
+- [ ] Sucrilhos
+- [ ] Bolacha maizena de coco
+- [ ] Bolacha rosquinha de coco
+- [ ] Folhata bolacha creme cracker
+- [ ] Torrada 
+- [ ] Rap 10 integral
+- [ ] Farinha panco
+- [ ] Batata palha
+- [ ] Danoninho
+- [ ] Danete chocolate preto e branco
+- [ ] Pão de forma de coco Panco
 
 ## Carnes e Ovos
-- [ ] Carne de panela
+- [ ] Carne de panela (2)
 - [ ] Bife
-- [ ] Linguiça fresca
+- [ ] Linguiça fresca (3)
 - [ ] Bacon
 - [ ] Linguiça defumada
-- [ ] Ovo
+- [ ] Ovo (2)
 - [ ] Coxinha da asa
 - [ ] Sobre-coxa com coxa
-- [ ] Filé de frango
-- [ ] Carne moída
+- [ ] Filé de frango (4)
+- [ ] Carne moída (2)
 
 ## Higiene e Limpeza
-- [ ] Papel higiênico
-- [ ] Papel toalha
+- [ ] Papel higiênico (2)
+- [ ] Papel toalha (2)
 - [ ] Saco de lixo (lixeira grande)
-- [ ] Papel alumínio
-- [ ] Luva P
+- [ ] Papel alumínio (2)
+- [ ] Luva P (2)
+- [ ] Sabão Líquido OMO (1)
+- [ ] Sabão em Pó Ypê (1)
+- [ ] Detergente (5)
+- [ ] Cândida G 
+- [ ] Amaciante 
+- [ ] Saco de lixo (lixeira pequena)
+- [ ] Fita dental 
 
 ## Hortifruti
 ### Legumes e Verduras
-- [ ] Alface
-- [ ] Couve
+- [ ] Alface (4)
+- [ ] Couve (2)
 - [ ] Cenoura
 - [ ] Abobrinha
-- [ ] Tomate
+- [ ] Tomate (1Kg)
 - [ ] Pepino
 - [ ] Alho
-- [ ] Batata
+- [ ] Batata (2)
 
 ### Temperos
-- [ ] Chimichurri
+- [ ] Chimichurri Andorinha granel
 - [ ] Páprica defumada
-- [ ] Alho frito
+- [ ] Alho frito (3)
 
 ### Frutas
-- [ ] Banana
+- [ ] Banana (2)
 - [ ] Maçã
-- [ ] Laranja
+- [ ] Laranja (2)
 - [ ] Manga
-- [ ] Melão
-- [ ] Uva
+- [ ] Melão unidade
+- [ ] Uva (2)

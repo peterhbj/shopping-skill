@@ -17,8 +17,9 @@ _STATUS_ALIAS = {
     "ambiguous_resolved": "ambiguous_resolved",
     "ambiguous_auto": "ambiguous_auto",
     "ambiguous_unresolved": "ambiguous_unresolved",
-    "needs_grok": "ambiguous_unresolved",
-    "not_found": "not_found",
+    "needs_grok": "needs_user",
+    "needs_user": "needs_user",
+    "not_found": "needs_user",
     "failed_to_add": "failed_to_add",
 }
 
@@ -48,21 +49,27 @@ def _is_weight_unit(unit: str | None) -> bool:
     return (unit or "").lower().strip() in ("kg", "g", "grama", "gramas")
 
 
+_NAME_STOP = frozenset(
+    "com sem para tipo longa vida embalagem pacote caixa und kg".split()
+)
+
+
+def _sig_tokens(text: str) -> set[str]:
+    return {t for t in normalize(text).split() if len(t) >= 4 and t not in _NAME_STOP}
+
+
 def _names_match(chosen: str | None, cart_name: str) -> bool:
     if not chosen:
         return False
     a, b = normalize(chosen), normalize(cart_name)
     if not a or not b:
         return False
-    if a == b:
+    if a == b or a[:48] in b or b[:48] in a:
         return True
-    wa = {t for t in a.split() if len(t) >= 4}
-    wb = {t for t in b.split() if len(t) >= 3}
-    if not wa:
-        wa = {t for t in a.split() if len(t) >= 3}
-    if not wa:
+    wa, wb = _sig_tokens(chosen), _sig_tokens(cart_name)
+    if not wa or not wb:
         return False
-    return len(wa & wb) >= min(2, len(wa)) or (len(wa) == 1 and next(iter(wa)) in wb)
+    return len(wa & wb) >= min(3, len(wa))
 
 
 def estimated_search_total(items: list[ItemReport]) -> float:
@@ -115,7 +122,13 @@ def reconcile_with_cart(items: list[ItemReport], lines: list[dict]) -> tuple[lis
         if line_total is not None:
             it.cart_line_total = float(line_total)
         elif unit_p is not None:
-            it.cart_line_total = round(float(unit_p) * line_qty, 2)
+            unit_p = float(unit_p)
+            # Drawer às vezes mostra só o total da linha (R$101,88), não o unitário.
+            expected = (it.unit_price or 0) * line_qty
+            if line_qty > 1 and expected > 0 and unit_p >= expected * 0.8:
+                it.cart_line_total = round(unit_p, 2)
+            else:
+                it.cart_line_total = round(unit_p * line_qty, 2)
         matched += 1
         if _is_weight_unit(it.unit):
             continue
@@ -186,7 +199,10 @@ def render_report(
                 tot = it.cart_line_total if it.cart_line_total is not None else it.total_cost
                 tot_s = f"R${tot:.2f}/kg" if it.cart_line_total is None else f"R${tot:.2f}"
             else:
-                qty_s = f"{it.packs_added}×{it.qty_target}"
+                if float(it.packs_added or 0) == float(it.qty_target or 0):
+                    qty_s = str(int(it.packs_added or it.qty_target or 0))
+                else:
+                    qty_s = f"{it.packs_added}×{it.qty_target}"
                 tot = it.cart_line_total if it.cart_line_total is not None else it.total_cost
                 tot_s = f"R${tot:.2f}"
             rows.append(
@@ -199,6 +215,7 @@ def render_report(
     amb_res = by_status.get("ambiguous_resolved", [])
     amb_auto = by_status.get("ambiguous_auto", [])
     amb_unres = by_status.get("ambiguous_unresolved", [])
+    needs_user = by_status.get("needs_user", [])
     not_found = by_status.get("not_found", [])
     failed = by_status.get("failed_to_add", [])
 
@@ -229,6 +246,14 @@ def render_report(
         for it in amb_unres:
             lines.append(f"- **{it.raw}**: " + " · ".join(it.notes or ["sem detalhes"]))
         lines.append("")
+    if needs_user:
+        lines.append(f"## ❓ Esperando você ({len(needs_user)})")
+        lines.append("")
+        lines.append("Não foram para o carrinho. Responda e rode `resolve`.")
+        lines.append("")
+        for it in needs_user:
+            lines.append(f"- **{it.raw}**: " + " · ".join(it.notes or ["sem detalhes"]))
+        lines.append("")
     if not_found:
         lines.append(f"## ❌ Não encontrados ({len(not_found)})")
         lines.append("")
@@ -249,3 +274,50 @@ def render_report(
     lines.append("- Revise os itens em ⚠️ e ❌ antes de finalizar o pedido.")
     lines.append("- Carrinho está montado mas não foi finalizado (checkout manual).")
     return "\n".join(lines) + "\n"
+
+
+def render_duvidas(planned_items: list[dict]) -> str:
+    """Perguntas para o usuário: busca, o que apareceu, o que não decidiram."""
+    doubts = [
+        it for it in planned_items
+        if (it.get("status") or "") in ("needs_user", "needs_grok", "not_found")
+    ]
+    lines = [
+        "# Dúvidas da busca — não foram para o carrinho",
+        "",
+        "Responda cada item (marca, tamanho, pular…). Com as respostas:",
+        "`python -m orchestrator.main resolve --list lista-compras.md --profile preferencias.yaml --answers respostas.yaml`",
+        "",
+    ]
+    if not doubts:
+        lines.append("Nenhuma dúvida. Pode `apply`.")
+        lines.append("")
+        return "\n".join(lines)
+    for n, it in enumerate(doubts, 1):
+        lines.append(f"## {n}. {it.get('raw') or '?'}")
+        lines.append("")
+        lines.append(f"- **Busca**: `{it.get('search_term') or '—'}`")
+        lines.append(f"- **Qty**: {it.get('qty') or 1} {it.get('unit') or ''}".rstrip())
+        lines.append(f"- **Por quê**: " + " · ".join(it.get("notes") or ["não decidido"]))
+        cands = it.get("candidates") or []
+        if cands:
+            lines.append("- **O que apareceu**:")
+            for c in cands[:8]:
+                price = c.get("price_num")
+                price_s = f"R${price:.2f}" if isinstance(price, (int, float)) else "?"
+                lines.append(f"  - [{c.get('index')}] {c.get('name')} — {price_s}")
+        else:
+            lines.append("- **O que apareceu**: nada")
+        if it.get("preferred_name"):
+            lines.append(f"- **Marca do perfil (não clicada)**: {it['preferred_name']}")
+        lines.append("")
+    lines.append("Exemplo `respostas.yaml`:")
+    lines.append("")
+    lines.append("```yaml")
+    lines.append("respostas:")
+    sample = doubts[0].get("raw") or "Item"
+    lines.append(f"  - item: {sample}")
+    lines.append("    texto: pular")
+    lines.append("```")
+    lines.append("")
+    return "\n".join(lines)

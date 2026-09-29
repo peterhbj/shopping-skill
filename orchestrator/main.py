@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import tempfile
@@ -27,7 +28,19 @@ from pathlib import Path
 import yaml
 
 from .browser import Browser, BrowserError, ProductResult
-from .enricher import enrich_list
+from .decision.jev import (
+    JevAdvisor,
+    JevError,
+    compare_to_user_choice,
+    is_confident_suggestion,
+)
+from .enricher import (
+    apply_catalog_mapping,
+    catalog_candidates,
+    enrich_list,
+    load_profile,
+    normalize,
+)
 from .llm.adapter import (
     GrokCLIAdapter,
     LLMAdapter,
@@ -226,7 +239,7 @@ def _unit_from_chosen(item: dict, results: list[ProductResult], decision: Decisi
 
 
 def _planned_from_decision(item: dict, decision: Decision, status: str, results: list[ProductResult]) -> dict:
-    return {
+    planned = {
         "raw": item.get("raw", ""),
         "item_text": item.get("item_text"),
         "search_term": item.get("search_term", ""),
@@ -243,6 +256,9 @@ def _planned_from_decision(item: dict, decision: Decision, status: str, results:
         "notes": list(decision.notes),
         "candidates": _cand_payload(results),
     }
+    if item.get("jev_enrichment") is not None:
+        planned["jev_enrichment"] = item["jev_enrichment"]
+    return planned
 
 
 def _index_from_answer(text: str) -> int | None:
@@ -371,6 +387,9 @@ def _resolve_answered(
                         "notes": list(planned.get("notes") or []) + [f"você escolheu [{idx}]"],
                     }
                 )
+                comparison = compare_to_user_choice(planned.get("jev"), idx)
+                if comparison is not None:
+                    planned["jev_user_comparison"] = comparison
                 print(f"[main] [resolve {n}] {planned.get('raw')} → [{idx}] {hit['name'][:50]}", flush=True)
                 continue
         item = by_raw.get(str(planned.get("raw") or "")) or {}
@@ -394,7 +413,9 @@ def _resolve_answered(
         )
 
 
-def _plan_one(b: Browser, item: dict, config: SelectorConfig) -> dict:
+def _plan_one(
+    b: Browser, item: dict, config: SelectorConfig, jev_queue: list[dict] | None = None
+) -> dict:
     raw = item.get("raw", "")
     search = (item.get("search_term") or "").strip()
     qty = item.get("qty", 1)
@@ -415,6 +436,8 @@ def _plan_one(b: Browser, item: dict, config: SelectorConfig) -> dict:
         "notes": [],
         "candidates": [],
     }
+    if item.get("jev_enrichment") is not None:
+        base["jev_enrichment"] = item["jev_enrichment"]
     if not search:
         base["notes"] = ["search_term vazio"]
         return base
@@ -440,8 +463,195 @@ def _plan_one(b: Browser, item: dict, config: SelectorConfig) -> dict:
             base["preferred_index"] = outcome.preferred.index
             base["preferred_name"] = outcome.preferred.name
         base["notes"] = [outcome.reason]
+        if jev_queue is not None:
+            jev_queue.append({
+                "planned": base,
+                "item": item,
+                "ambiguity": outcome,
+                "results": results,
+            })
         return base
     return _planned_from_decision(item, outcome, "decided", results)
+
+
+def _jev_profile_pass(
+    items: list[dict], profile: dict, jev: JevAdvisor, *, apply: bool,
+    min_probability: float, min_margin: float,
+) -> None:
+    """Batch semantic enrichment for items the local profile did not recognize."""
+    unresolved = [
+        (index, item) for index, item in enumerate(items)
+        if not item.get("kb_matched")
+    ]
+    entries: list[dict] = []
+    refs: dict[str, tuple[int, dict]] = {}
+    for index, item in unresolved:
+        candidates = catalog_candidates(item, profile, limit=6)
+        if not candidates:
+            continue
+        key = f"list_item_{index}"
+        current = str(item.get("generic") or item.get("item_text") or item.get("raw") or "")
+        brands = {normalize(k): str(v) for k, v in (profile.get("marcas") or {}).items()}
+        quantities = {normalize(k): v for k, v in (profile.get("quantidades") or {}).items()}
+        options = [{
+            "id": "keep_current",
+            "description": f"Manter o texto interpretado como está: {current}",
+            "value": {"generic": current, "keep_current": True},
+        }]
+        for n, generic in enumerate(candidates):
+            if normalize(generic) == normalize(current):
+                continue
+            options.append({
+                "id": f"generic_{n}",
+                "description": (
+                    f"Produto cadastrado no perfil: {generic}; "
+                    f"marca preferida={brands.get(normalize(generic), 'nenhuma')}; "
+                    f"quantidade padrão={quantities.get(normalize(generic), 'não definida')}"
+                ),
+                "value": {"generic": generic, "keep_current": False},
+            })
+        entries.append({
+            "id": key,
+            "state": {
+                "pedido": item.get("raw"),
+                "texto_do_item": item.get("item_text"),
+                "sabor": item.get("flavor"),
+                "quantidade": item.get("qty"),
+                "unidade": item.get("unit"),
+                "secao": item.get("department"),
+                "interpretacao_atual": current,
+            },
+            "question": (
+                "Mapeie o pedido para o produto do perfil que representa o mesmo item. "
+                "Não escolha apenas por palavras parecidas; respeite sabor, tipo e seção. "
+                "Se nenhuma opção for claramente equivalente, escolha ask_user."
+            ),
+            "options": options,
+        })
+        refs[key] = (index, item)
+    if not entries:
+        return
+    for start in range(0, len(entries), 12):
+        group = entries[start : start + 12]
+        try:
+            suggestions = jev.choose_many(group)
+        except JevError as exc:
+            for entry in group:
+                _, item = refs[entry["id"]]
+                item["jev_enrichment"] = {"error": str(exc)}
+            continue
+        for key, suggestion in suggestions.items():
+            index, item = refs[key]
+            item["jev_enrichment"] = suggestion
+            if not apply or not is_confident_suggestion(
+                suggestion, min_probability=min_probability, min_margin=min_margin
+            ):
+                continue
+            candidate = suggestion.get("candidate") or {}
+            generic = candidate.get("generic")
+            if not generic or candidate.get("keep_current"):
+                continue
+            try:
+                probability = float(
+                    (suggestion.get("probabilities") or {}).get(suggestion.get("choice")) or 0
+                )
+            except (TypeError, ValueError):
+                probability = 0.0
+            items[index] = apply_catalog_mapping(item, str(generic), profile, probability)
+            items[index]["jev_enrichment"] = suggestion
+
+
+def _jev_product_pass(
+    queue: list[dict], jev: JevAdvisor, config: SelectorConfig, *,
+    apply: bool, min_probability: float, min_margin: float,
+) -> None:
+    """Batch product judgments after every search and hard selector gate ran."""
+    chunk_size = 12
+    for start in range(0, len(queue), chunk_size):
+        group = queue[start : start + chunk_size]
+        entries: list[dict] = []
+        refs: dict[str, dict] = {}
+        for n, context in enumerate(group):
+            planned = context["planned"]
+            item = context["item"]
+            ambiguity = context["ambiguity"]
+            options = []
+            for candidate_index, product in enumerate(ambiguity.candidates[:5]):
+                option_id = f"product_{candidate_index}"
+                options.append({
+                    "id": option_id,
+                    "description": (
+                        f"{product.name}; marca={product.brand_name or 'desconhecida'}; "
+                        f"R${product.price_num:.2f}; preço/base={product.price_per_base_unit:.4f} "
+                        f"por {product.price_base_dim}; unidade={product.sale_unit or product.unit}"
+                    ),
+                    "value": {
+                        "index": product.index,
+                        "name": product.name,
+                        "product_id": product.product_id,
+                    },
+                })
+            key = f"product_item_{start + n}"
+            entries.append({
+                "id": key,
+                "state": {
+                    "pedido": item.get("raw"),
+                    "produto_interpretado": item.get("item_text"),
+                    "sabor": item.get("flavor"),
+                    "quantidade": item.get("qty"),
+                    "unidade": item.get("unit"),
+                    "marca_preferida": item.get("preferred_brand"),
+                    "sem_lactose": item.get("lactose_free"),
+                    "tipo_de_duvida": ambiguity.kind,
+                    "motivo": ambiguity.reason,
+                },
+                "question": (
+                    "Escolha o resultado que corresponde ao pedido e às preferências. "
+                    "Não troque sabor ou tipo por semelhança superficial. "
+                    "Se a substituição for incerta, escolha ask_user."
+                ),
+                "options": options,
+            })
+            refs[key] = context
+        try:
+            suggestions = jev.choose_many(entries)
+        except JevError as exc:
+            for context in group:
+                context["planned"]["jev"] = {"error": str(exc)}
+            continue
+        for key, suggestion in suggestions.items():
+            context = refs[key]
+            planned = context["planned"]
+            planned["jev"] = suggestion
+            if not apply or not is_confident_suggestion(
+                suggestion, min_probability=min_probability, min_margin=min_margin
+            ):
+                continue
+            selected_index = (suggestion.get("candidate") or {}).get("index")
+            selected = next(
+                (c for c in context["ambiguity"].candidates if c.index == selected_index), None
+            )
+            if selected is None:
+                continue
+            packs, total = _packs_for(selected, context["item"], config)
+            decision = Decision(
+                index=selected.index,
+                name=selected.name,
+                price_num=selected.price_num,
+                rule="jev-resolved",
+                packs_needed=packs,
+                total_cost=total,
+                notes=[
+                    "Jev resolveu após o filtro do selector; "
+                    f"prob={suggestion['probabilities'].get(suggestion['choice'], 0):.3f}"
+                ],
+            )
+            resolved = _planned_from_decision(
+                context["item"], decision, "decided", context["results"]
+            )
+            resolved["jev"] = suggestion
+            planned.clear()
+            planned.update(resolved)
 
 
 def _resolve_needs_grok(
@@ -573,6 +783,10 @@ def run(
     command: str = "run",
     run_file: Path | None = None,
     answers_path: Path | None = None,
+    jev_shadow: bool = False,
+    jev_auto: bool = False,
+    jev_min_probability: float = 0.90,
+    jev_min_margin: float = 0.20,
 ) -> int:
     started = time.time()
     run_file = run_file or Path("run.json")
@@ -581,14 +795,35 @@ def run(
     print(f"[main] Enriquecendo lista: {list_path.name}", flush=True)
     enriched = enrich_list(list_path, profile_path)
     items = enriched["items"]
+    config, raw_cfg = _load_config(profile_path)
+    try:
+        use_jev = (jev_shadow or jev_auto) and command not in ("apply", "resolve")
+        jev = JevAdvisor() if use_jev else None
+    except JevError as exc:
+        print(f"[main] ERRO: {exc}", file=sys.stderr)
+        return 2
+    if jev is not None and command not in ("apply", "resolve"):
+        mode = "auto" if jev_auto else "shadow"
+        print(f"[main] Jev ativo em modo {mode}; decisões agrupadas por etapa", flush=True)
+        try:
+            _jev_profile_pass(
+                items,
+                load_profile(profile_path),
+                jev,
+                apply=jev_auto,
+                min_probability=jev_min_probability,
+                min_margin=jev_min_margin,
+            )
+        except JevError as exc:
+            print(f"[main] aviso Jev no enriquecimento: {exc}", flush=True)
+    enriched["meta"]["kb_matched"] = sum(bool(item.get("kb_matched")) for item in items)
+    enriched["meta"]["unmatched"] = len(items) - enriched["meta"]["kb_matched"]
     print(
         f"[main] {enriched['meta']['total_items']} itens "
         f"({enriched['meta']['kb_matched']} matched, "
         f"{enriched['meta']['unmatched']} unmatched) cmd={command}",
         flush=True,
     )
-
-    config, raw_cfg = _load_config(profile_path)
     llm_model = str(raw_cfg.get("llm_model") or "grok-4.6")
     llm_timeout = int(raw_cfg.get("llm_timeout_s", 120))
     browser_cfg = raw_cfg.get("browser", {}) or {}
@@ -646,13 +881,25 @@ def run(
             print(f"[main] {command} a partir de {run_file} ({len(planned_list)} itens)", flush=True)
         else:
             planned_list = []
+            jev_queue: list[dict] = []
             for n, item in enumerate(items, 1):
                 print(
                     f"[main] [plan {n:2d}/{len(items)}] {str(item.get('raw', ''))[:35]:<35} "
                     f"→ {str(item.get('search_term', ''))[:35]}",
                     flush=True,
                 )
-                planned_list.append(_plan_one(b, item, config))
+                planned_list.append(_plan_one(
+                    b, item, config, jev_queue if jev is not None else None
+                ))
+            if jev is not None and jev_queue:
+                _jev_product_pass(
+                    jev_queue,
+                    jev,
+                    config,
+                    apply=jev_auto,
+                    min_probability=jev_min_probability,
+                    min_margin=jev_min_margin,
+                )
             run_file.write_text(
                 json.dumps(
                     {"meta": enriched.get("meta"), "items": planned_list},
@@ -851,7 +1098,22 @@ def main() -> int:
                    help="Fecha o browser ao terminar")
     p.add_argument("--answers", type=Path, default=None,
                    help="respostas.yaml para o comando resolve")
+    jev_group = p.add_mutually_exclusive_group()
+    jev_group.add_argument("--jev-shadow", action="store_true",
+                           help="Registra sugestões Jev sem mudar escolhas ou carrinho")
+    jev_group.add_argument("--jev-auto", action="store_true",
+                           help="Permite mapeamento e decisões Jev com alta confiança")
+    jev_group.add_argument("--no-jev", action="store_true",
+                           help="Desativa o Jev mesmo se TYPESAFE_API_KEY estiver configurada")
+    p.add_argument("--jev-min-probability", type=float, default=0.90,
+                   help="Probabilidade mínima da escolha Jev em --jev-auto (default: 0.90)")
+    p.add_argument("--jev-min-margin", type=float, default=0.20,
+                   help="Margem mínima sobre a segunda opção em --jev-auto (default: 0.20)")
     args = p.parse_args()
+    if not 0.0 <= args.jev_min_probability <= 1.0:
+        p.error("--jev-min-probability precisa estar entre 0 e 1")
+    if not 0.0 <= args.jev_min_margin <= 1.0:
+        p.error("--jev-min-margin precisa estar entre 0 e 1")
 
     launch_own = not args.cdp
     return run(
@@ -865,6 +1127,13 @@ def main() -> int:
         command=args.command,
         run_file=args.run_file,
         answers_path=args.answers,
+        jev_shadow=args.jev_shadow,
+        jev_auto=(
+            args.jev_auto
+            or (bool(os.getenv("TYPESAFE_API_KEY")) and not args.jev_shadow and not args.no_jev)
+        ),
+        jev_min_probability=args.jev_min_probability,
+        jev_min_margin=args.jev_min_margin,
     )
 
 

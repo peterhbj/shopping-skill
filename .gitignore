@@ -6,6 +6,7 @@ venv/
 .env
 enriched-preview.json
 run.json
+respostas.yaml
 relatorio.md
 relatorio-simulacao.md
 *.bak

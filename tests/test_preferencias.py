@@ -82,6 +82,11 @@ class PrefsTest(unittest.TestCase):
         self.assertTrue(leite.lactose_free)
         self.assertEqual(leite.preferred_brand, "Ninho Levinho")
 
+    def test_quantity_profile_also_counts_as_known_enrichment(self):
+        item = enrich_item("Leite", {"quantidades": {"leite": 12}})
+        self.assertTrue(item.kb_matched)
+        self.assertEqual(item.qty, 12)
+
     def test_enrich_real_list_if_present(self):
         lista = Path("lista-compras.md")
         prefs = Path("preferencias.yaml")

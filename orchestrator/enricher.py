@@ -410,6 +410,19 @@ def enrich_item(
     if qty_from_raw is None and pref_qty is not None:
         notes.append(f"qty perfil: {qty}")
 
+    known_keys = {
+        normalize(key)
+        for section in ("apelidos", "marcas", "quantidades")
+        for key in (prefs.get(section) or {})
+    }
+    known_alias_targets = {normalize(value) for value in apelidos.values()}
+    kb_matched = bool(
+        brand
+        or norm_full in known_keys
+        or norm_key in known_keys
+        or normalize(generic) in known_alias_targets
+    )
+
     return EnrichedItem(
         raw=raw,
         item_text=item_text,
@@ -422,11 +435,81 @@ def enrich_item(
         preferred_brand=brand,
         lactose_free=lactose_free,
         rotation=rotation,
-        kb_matched=bool(brand or norm_key in apelidos),
-        match_score=1.0 if (brand or norm_key in apelidos) else 0.0,
+        kb_matched=kb_matched,
+        match_score=1.0 if kb_matched else 0.0,
         notes=notes,
         department=department,
     )
+
+
+def catalog_candidates(item: dict[str, Any], profile: dict[str, Any], limit: int = 5) -> list[str]:
+    """Return a small, profile-grounded shortlist for semantic list enrichment."""
+    aliases = profile.get("apelidos") or {}
+    brands = profile.get("marcas") or {}
+    quantities = profile.get("quantidades") or {}
+    catalog: dict[str, str] = {}
+    for value in list(aliases.values()) + list(brands) + list(quantities):
+        value = str(value).strip()
+        if value:
+            catalog.setdefault(normalize(value), value)
+
+    query = normalize(str(item.get("item_text") or item.get("raw") or ""))
+    words = set(query.split())
+    ranked: list[tuple[float, str]] = []
+    for norm, value in catalog.items():
+        score = difflib.SequenceMatcher(None, query, norm).ratio()
+        candidate_words = set(norm.split())
+        if candidate_words:
+            score = max(score, 0.72 * len(words & candidate_words) / len(candidate_words))
+        if query and (query in norm or norm in query):
+            score = max(score, 0.78)
+        ranked.append((score, value))
+    ranked.sort(key=lambda pair: (-pair[0], normalize(pair[1])))
+
+    current = str(item.get("generic") or item.get("item_text") or "").strip()
+    candidates = [current] if current else []
+    candidates.extend(
+        value for score, value in ranked
+        if score >= 0.30 and all(normalize(value) != normalize(c) for c in candidates)
+    )
+    return candidates[:limit]
+
+
+def apply_catalog_mapping(
+    item: dict[str, Any], generic: str, profile: dict[str, Any], confidence: float
+) -> dict[str, Any]:
+    """Apply a Jev-selected known product while retaining list qty/flavor syntax."""
+    mapped = asdict(enrich_item(
+        str(item.get("item_text") or item.get("raw") or ""),
+        profile,
+        department=item.get("department") or item.get("category"),
+    ))
+    mapped["generic"] = generic
+    brands = {normalize(k): str(v) for k, v in (profile.get("marcas") or {}).items()}
+    brand = brands.get(normalize(generic))
+    mapped["preferred_brand"] = brand
+    mapped["rotation"] = not bool(brand)
+    mapped["search_term"] = _build_search_term(generic, brand, not bool(brand))
+    flavor = item.get("flavor")
+    if flavor and normalize(flavor) not in normalize(mapped["search_term"]):
+        mapped["search_term"] = f"{mapped['search_term']} {flavor}".strip()
+    mapped["generic"] = generic
+    mapped["unit"] = expected_unit(generic, item.get("department") or item.get("category"))
+    generic_norm = normalize(generic)
+    mapped["lactose_free"] = bool(profile.get("sem_lactose")) and any(
+        hint in generic_norm for hint in _DAIRY_HINTS
+    ) and "ralado" not in generic_norm
+    mapped["raw"] = item.get("raw", mapped["raw"])
+    mapped["item_text"] = item.get("item_text", mapped["item_text"])
+    mapped["qty"] = item.get("qty", mapped["qty"])
+    mapped["qty_from_raw"] = item.get("qty_from_raw", mapped["qty_from_raw"])
+    mapped["flavor"] = flavor
+    mapped["category"] = item.get("category", mapped["category"])
+    mapped["department"] = item.get("department", mapped["department"])
+    mapped["kb_matched"] = True
+    mapped["match_score"] = confidence
+    mapped["notes"] = list(item.get("notes") or []) + [f"Jev mapeou para: {generic} ({confidence:.3f})"]
+    return mapped
 
 
 # =============================================================================

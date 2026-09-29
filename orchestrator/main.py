@@ -49,6 +49,7 @@ from .llm.adapter import (
 )
 from .report import ItemReport, reconcile_with_cart, render_duvidas, render_report
 from .selector import (
+    packs_for_qty,
     Ambiguity,
     Decision,
     NoResult,
@@ -178,6 +179,7 @@ def _cand_payload(results: list[ProductResult]) -> list[dict]:
             "sale_unit": r.sale_unit,
             "categories": (r.categories or [])[:3],
             "brand_name": r.brand_name,
+            "product_id": r.product_id,
         }
         for r in results[:12]
     ]
@@ -239,6 +241,7 @@ def _unit_from_chosen(item: dict, results: list[ProductResult], decision: Decisi
 
 
 def _planned_from_decision(item: dict, decision: Decision, status: str, results: list[ProductResult]) -> dict:
+    chosen_result = next((r for r in results if r.index == decision.index), None)
     planned = {
         "raw": item.get("raw", ""),
         "item_text": item.get("item_text"),
@@ -249,6 +252,7 @@ def _planned_from_decision(item: dict, decision: Decision, status: str, results:
         "status": status,
         "chosen_index": decision.index,
         "chosen_name": decision.name,
+        "chosen_product_id": chosen_result.product_id if chosen_result else None,
         "packs_needed": decision.packs_needed,
         "price_num": decision.price_num,
         "total_cost": decision.total_cost,
@@ -374,12 +378,13 @@ def _resolve_answered(
                 price = float(hit.get("price_num") or 0)
                 qty = planned.get("qty") or 1
                 unit = (planned.get("unit") or "un").lower()
-                packs = 1 if unit in ("kg", "g") else int(qty) if float(qty) == int(float(qty)) else 1
+                packs = packs_for_qty(qty, unit)
                 planned.update(
                     {
                         "status": "decided",
                         "chosen_index": idx,
                         "chosen_name": hit["name"],
+                        "chosen_product_id": hit.get("product_id"),
                         "price_num": price,
                         "packs_needed": packs,
                         "total_cost": round(price * (1 if unit in ("kg", "g") else packs), 2),
@@ -718,15 +723,28 @@ def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) ->
         results = _search_results(b, search)
     except Exception as e:
         return _blank_report(raw, "not_found", [f"erro navegação: {e}"], qty)
-    chosen = _match_name(results, planned.get("chosen_name"))
+    # Index positions are page-local and search HTTP hits are not clickable.
+    # Re-find the exact product after navigation, before touching the cart.
+    product_id = str(planned.get("chosen_product_id") or "")
+    clickable = [r for r in results if r.has_add or r.has_plus or r.has_minus]
+    chosen = next((r for r in clickable if product_id and r.product_id == product_id), None)
+    if chosen is None and not product_id:
+        chosen = next((r for r in clickable if r.name_lower == str(planned.get("chosen_name") or "").lower()), None)
     if chosen is None and planned.get("chosen_name"):
         try:
             results = _search_results(b, planned["chosen_name"])
         except Exception:
             results = []
-        chosen = _match_name(results, planned.get("chosen_name"))
+        clickable = [r for r in results if r.has_add or r.has_plus or r.has_minus]
+        chosen = next((r for r in clickable if product_id and r.product_id == product_id), None)
+        if chosen is None and not product_id:
+            chosen = next((r for r in clickable if r.name_lower == str(planned.get("chosen_name") or "").lower()), None)
     if chosen is None:
-        return _blank_report(raw, "not_found", ["escolha não está mais nos resultados"], qty)
+        return _blank_report(raw, "not_found", ["produto exato não está disponível em um card clicável"], qty)
+    planned_price = float(planned.get("price_num") or 0)
+    # Price drops are fine; only an increase needs a new review.
+    if planned_price <= 0 or chosen.price_num <= 0 or chosen.price_num > planned_price + 0.01:
+        return _blank_report(raw, "failed_to_add", [f"preço subiu (R${planned_price:.2f} → R${chosen.price_num:.2f}); gere e revise um novo plano"], qty)
     packs = int(planned.get("packs_needed") or 1)
     state = b.card_state(chosen.index)
     current = int(state.get("qty") or 0)

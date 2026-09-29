@@ -5,7 +5,7 @@ Recebe: item enriquecido (do enricher) + list[ProductResult] (do browser).
 Retorna: Decision (só se estiver claro) ou Ambiguity/NoResult (perguntar ao usuário).
 
 Regras em ordem:
-  1. Filtro lactose (se household lactose_free + categoria lácteo → exige SL)
+  1. Filtro lactose (se household lactose_free + categoria láctea → exige SL)
   2. Pack optimization (problema 1): se há múltiplas embalagens com
      diferenças significativas de price_per_base_unit, escolhe a melhor.
   3. Preferred brand match (KB):

@@ -71,6 +71,27 @@ class JevAdvisor:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 data = json.load(response)
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                body = json.load(exc)
+                value = (
+                    body.get("detail") or body.get("message") or body.get("error")
+                    if isinstance(body, dict) else None
+                )
+                if isinstance(value, list):
+                    detail = "; ".join(str(part.get("msg", "")) for part in value if isinstance(part, dict))
+                elif isinstance(value, dict):
+                    detail = str(value.get("message") or value.get("code") or "")
+                elif isinstance(value, str):
+                    detail = value
+            except (ValueError, UnicodeError, OSError):
+                pass
+            finally:
+                exc.close()
+            detail = detail.replace(self.api_key, "[redacted]")[:300]
+            suffix = f": {detail}" if detail else ""
+            raise JevError(f"Falha na consulta Jev: HTTP {exc.code}{suffix}") from exc
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
             raise JevError(f"Falha na consulta Jev: {exc}") from exc
 

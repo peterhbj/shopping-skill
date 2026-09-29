@@ -1,6 +1,7 @@
 import io
 import json
 import unittest
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 from orchestrator.decision.jev import (
@@ -52,6 +53,17 @@ class JevBatchTest(unittest.TestCase):
         }).encode())
         with patch("urllib.request.urlopen", return_value=response):
             with self.assertRaises(JevError):
+                JevAdvisor("test-key").choose_many([
+                    entry("item_a", [{"id": "option_0", "description": "Known", "value": 1}])
+                ])
+
+    def test_http_error_reports_detail_without_key(self):
+        error = HTTPError(
+            "https://api.typesafe.ai/v1/systemone", 400, "Bad Request", {},
+            io.BytesIO(b'{"detail":"Invalid request for test-key"}'),
+        )
+        with patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaisesRegex(JevError, r"HTTP 400: Invalid request for \[redacted\]"):
                 JevAdvisor("test-key").choose_many([
                     entry("item_a", [{"id": "option_0", "description": "Known", "value": 1}])
                 ])

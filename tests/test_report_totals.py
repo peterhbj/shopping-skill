@@ -1,9 +1,7 @@
 """Garante que o relatório não vende estimativa de busca como total do carrinho."""
 from __future__ import annotations
 
-import json
 import unittest
-from pathlib import Path
 
 from orchestrator.report import (
     ItemReport,
@@ -13,30 +11,38 @@ from orchestrator.report import (
     render_report,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 SITE_CART_TOTAL = 1077.97
 
 
 def _items_from_run() -> list[ItemReport]:
-    data = json.loads((ROOT / "run.json").read_text(encoding="utf-8"))
-    out = []
-    for it in data["items"]:
-        out.append(
-            ItemReport(
-                raw=it.get("raw") or "",
-                status=it.get("status") or "ok",
-                chosen_name=it.get("chosen_name"),
-                chosen_index=it.get("chosen_index"),
-                rule=it.get("rule"),
-                qty_target=it.get("qty") or 1,
-                packs_added=int(it.get("packs_needed") or 0),
-                unit_price=float(it.get("price_num") or 0),
-                total_cost=float(it.get("total_cost") or 0),
-                notes=list(it.get("notes") or []),
-                unit=it.get("unit"),
-            )
-        )
-    return out
+    return [
+        ItemReport(
+            raw="Leite (12)",
+            status="ok",
+            chosen_name="Leite sem lactose 1l",
+            chosen_index=0,
+            rule="test",
+            qty_target=12,
+            packs_added=12,
+            unit_price=8.49,
+            total_cost=101.88,
+            notes=[],
+            unit="un",
+        ),
+        ItemReport(
+            raw="Arroz",
+            status="ok",
+            chosen_name="Arroz 5kg",
+            chosen_index=0,
+            rule="test",
+            qty_target=1,
+            packs_added=1,
+            unit_price=28.90,
+            total_cost=28.90,
+            notes=[],
+            unit="un",
+        ),
+    ]
 
 
 class ReportTotalsTest(unittest.TestCase):

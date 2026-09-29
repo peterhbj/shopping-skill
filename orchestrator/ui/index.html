@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#090a0d">
+  <meta name="app-token" content="__TOKEN__">
+  <title>Andorinha · Compras assistidas</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand" aria-label="Andorinha, compras assistidas">
+          <span class="brand-mark" aria-hidden="true">a.</span>
+          <span class="brand-wordmark">andorinha<span class="brand-sub">/ compras assistidas</span></span>
+        </div>
+        <div class="topbar-meta"><span class="live-dot" aria-hidden="true"></span><span>Aplicativo local</span><span class="topbar-divider"></span><span class="checkout-note">Checkout manual</span></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> SEU PAINEL DE COMPRAS</div>
+          <h1 id="page-title">Sua lista.<br><em>Escolhas melhores.</em></h1>
+          <p>Produtos pesquisados, hábitos considerados e dúvidas organizadas. Você revisa o plano antes de qualquer item entrar no carrinho.</p>
+          <div class="hero-steps" aria-label="Etapas"><span><b>01</b> Conecte</span><i></i><span><b>02</b> Planeje</span><i></i><span><b>03</b> Revise</span></div>
+        </div>
+        <div class="hero-overview">
+          <div class="overview-top"><span>VISÃO GERAL</span><span class="overview-index">01 / 03</span></div>
+          <div class="score">
+            <div class="metric"><strong id="count-orders">0</strong><span>pedidos no histórico</span></div>
+            <div class="metric"><strong id="count-lines">0</strong><span>produtos registrados</span></div>
+          </div>
+          <p class="overview-foot">Seu histórico fica apenas neste computador.</p>
+        </div>
+      </section>
+
+      <div id="notice" role="status" aria-live="polite"></div>
+
+      <div class="workspace-grid">
+        <section class="panel connection-panel" aria-labelledby="connection-title">
+          <div class="section-head">
+            <span class="step">01</span>
+            <div><p class="section-kicker">PREPARAÇÃO</p><h2 id="connection-title">Conexões e histórico</h2></div>
+          </div>
+
+          <div class="control-group">
+            <div class="group-title"><span class="group-icon" aria-hidden="true">A</span><div><h3>Conta Andorinha</h3><p>Use sua sessão para recuperar os pedidos concluídos.</p></div></div>
+            <div class="row"><button id="andorinha-login" type="button">Abrir login Andorinha <span aria-hidden="true">↗</span></button><button id="andorinha-done" type="button" class="secondary">Login concluído</button></div>
+            <div class="row"><button id="history-sync" type="button" class="accent-outline">Sincronizar pedidos <span aria-hidden="true">↻</span></button><label class="file secondary">Importar JSON/CSV<input id="history-file" type="file" accept=".json,.csv"></label></div>
+            <p id="history-status" class="status-note" role="status"></p>
+            <p class="hint">Se a loja não disponibilizar os detalhes dos pedidos, importe um arquivo.</p>
+          </div>
+
+          <div class="control-group integrations">
+            <div class="group-title"><span class="group-icon violet" aria-hidden="true">✦</span><div><h3>Assistentes</h3><p>O assistente (Claude ou Luna) explica exceções. Jev avalia opções em observação.</p></div></div>
+            <div class="row luna-row"><button id="luna-login" type="button" class="secondary">Conectar Luna <span aria-hidden="true">↗</span></button><span id="luna-state" class="integration-state">Verificando…</span></div>
+            <div id="luna-device" class="device"></div>
+            <div class="key-row"><label class="sr-only" for="jev-key">Chave do Jev</label><input id="jev-key" type="password" placeholder="Chave do Jev nesta sessão" autocomplete="off"><button id="jev-save" type="button" class="secondary">Salvar chave</button></div>
+            <p class="hint">A chave fica apenas na memória enquanto o aplicativo estiver aberto.</p>
+          </div>
+        </section>
+
+        <section class="panel list-panel" aria-labelledby="list-title">
+          <div class="section-head">
+            <span class="step">02</span>
+            <div><p class="section-kicker">SUA PRÓXIMA COMPRA</p><h2 id="list-title">Lista de compras</h2></div>
+          </div>
+          <div class="editor-top"><span>LISTA ATUAL</span><span class="editor-format">Markdown · edite à vontade</span></div>
+          <textarea id="shopping-list" spellcheck="false" aria-label="Lista de compras"></textarea>
+          <div class="list-actions"><button id="plan-button" type="button" class="primary">Gerar plano <span aria-hidden="true">→</span></button><span id="progress" class="progress" role="status"></span></div>
+          <p class="hint list-hint">Gerar o plano não altera o carrinho. Restrições e preferências explícitas vêm primeiro.</p>
+        </section>
+      </div>
+
+      <section class="panel plan-panel" aria-labelledby="plan-title">
+        <div class="plan-header">
+          <div class="section-head"><span class="step">03</span><div><p class="section-kicker">DECISÃO FINAL</p><h2 id="plan-title">Plano para revisar</h2></div></div>
+          <span id="plan-summary" class="plan-summary"></span>
+        </div>
+        <div id="luna-review" class="review"></div>
+        <div id="plan-items" class="items"><div class="empty-state"><span class="empty-icon" aria-hidden="true">◫</span><h3>Seu plano aparece aqui</h3><p>Gere um plano para comparar produtos, preços e dúvidas antes do carrinho.</p></div></div>
+        <div class="footer-actions"><div><p class="action-title">Tudo revisado?</p><p>Pagamento e finalização acontecem no site do Andorinha.</p></div><button id="apply-button" type="button" class="primary" disabled>Adicionar escolhas ao carrinho <span aria-hidden="true">→</span></button></div>
+        <pre id="report" class="report"></pre>
+      </section>
+    </main>
+    <footer class="app-footer"><span>ANDORINHA / COMPRAS ASSISTIDAS</span><span>Local no Windows · sua decisão, sempre</span></footer>
+  </div>
+</body>
+</html>

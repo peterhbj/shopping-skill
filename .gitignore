@@ -12,6 +12,7 @@ relatorio-simulacao.md
 *.bak
 .playwright/
 andorinha-pw-profile/
+*.sqlite3
 *.pyc
 .DS_Store
 Thumbs.db

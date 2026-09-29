@@ -17,6 +17,8 @@ com await de mutação do DOM entre cada click (timeout configurável).
 from __future__ import annotations
 
 import json
+import os
+import sys
 import re
 import tempfile
 import time
@@ -131,7 +133,9 @@ def product_from_sense_hit(hit: dict, index: int) -> ProductResult:
         price_per_kg=sale == "KG" or sell_w,
         in_cart=False,
         current_qty=0,
-        has_add=True,
+        # HTTP search hits have no DOM card to click. Only a page lookup may
+        # turn one into a clickable result.
+        has_add=False,
         has_plus=False,
         has_minus=False,
         product_id=str(hit.get("id") or "") or None,
@@ -252,7 +256,7 @@ class Browser:
         self.nav_timeout_ms = nav_timeout_ms
         self.page_index = page_index
         self.launch_own = launch_own
-        self.user_data_dir = user_data_dir or str(Path(tempfile.gettempdir()) / "andorinha-pw-profile")
+        self.user_data_dir = user_data_dir or os.getenv("ANDORINHA_BROWSER_PROFILE") or str(Path(tempfile.gettempdir()) / "andorinha-pw-profile")
         self.headless = headless
         self.keep_open = keep_open
         self._pw = None
@@ -335,17 +339,25 @@ class Browser:
             self._page = ctx.new_page()
 
     def _start_own(self) -> None:
+        channel = "msedge" if sys.platform == "win32" else None
         ctx = self._pw.chromium.launch_persistent_context(
             user_data_dir=self.user_data_dir,
             headless=self.headless,
             viewport={"width": 1280, "height": 800},
+            channel=channel,
         )
         # Em launch_persistent_context não há `browser` object; guardamos o context.
         self._browser = None  # type: ignore[assignment]
         self._page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
     def close(self) -> None:
-        # Não fechamos o browser (é o do usuário). Apenas desconectamos.
+        # Own Edge must release its persistent profile before the next job.
+        # A CDP-connected browser belongs to the user and is only disconnected.
+        if self.launch_own and self._page:
+            try:
+                self._page.context.close()
+            except Exception:
+                pass
         if self._pw:
             try:
                 self._pw.stop()
@@ -807,8 +819,8 @@ def _lines_from_cart_payloads(payloads: list[dict]) -> list[dict]:
 
 def _login_session() -> int:
     """Abre o Chromium persistente na home do Andorinha só para o usuário logar."""
-    profile = str(Path(tempfile.gettempdir()) / "andorinha-pw-profile")
-    print(f"[login] abrindo Chromium do Playwright", flush=True)
+    profile = os.getenv("ANDORINHA_BROWSER_PROFILE") or str(Path(tempfile.gettempdir()) / "andorinha-pw-profile")
+    print("[login] abrindo navegador do projeto (Edge no Windows)", flush=True)
     print(f"[login] perfil: {profile}", flush=True)
     print("[login] faça login no Andorinha nesta janela (não no Chrome normal).", flush=True)
     with Browser(launch_own=True, keep_open=True, user_data_dir=profile) as b:

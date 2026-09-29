@@ -5,7 +5,7 @@ Recebe: item enriquecido (do enricher) + list[ProductResult] (do browser).
 Retorna: Decision (só se estiver claro) ou Ambiguity/NoResult (perguntar ao usuário).
 
 Regras em ordem:
-  1. Filtro lactose (se household lactose_free + categoria láctea → exige SL)
+  1. Filtro lactose (se household lactose_free + categoria lácteo → exige SL)
   2. Pack optimization (problema 1): se há múltiplas embalagens com
      diferenças significativas de price_per_base_unit, escolhe a melhor.
   3. Preferred brand match (KB):
@@ -324,9 +324,19 @@ def _packs_needed_for_item(
     else:
         # qty explícita da lista (leite 12, água 12, molho 10, 2 pacotes).
         # Não aplicar max_packs — isso cortava 12→6.
-        packs = max(1, int(target_qty) if isinstance(target_qty, (int, float)) else 1)
+        packs = packs_for_qty(target_qty)
 
     return packs, round(packs * chosen.price_num, 2)
+
+
+def packs_for_qty(qty, unit: str | None = None) -> int:
+    """Packs for a list quantity; weight items are one line, fractions round up."""
+    if (unit or "").lower() in ("kg", "g"):
+        return 1
+    try:
+        return max(1, math.ceil(float(qty) - 1e-9))
+    except (TypeError, ValueError):
+        return 1
 
 
 _STOP = frozenset({

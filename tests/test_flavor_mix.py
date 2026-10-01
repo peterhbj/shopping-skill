@@ -1,6 +1,9 @@
 import unittest
 
-from orchestrator.enricher import _expand_flavors
+import tempfile
+from pathlib import Path
+
+from orchestrator.enricher import _expand_flavors, extract_qty_from_raw, parse_list_file
 from orchestrator.main import _apply_mix_answer, _mix_from_answer
 
 
@@ -22,6 +25,24 @@ class FlavorListTest(unittest.TestCase):
             _expand_flavors("Refri: limão, mexerica"),
             [("Refri", "limão"), ("Refri", "mexerica")],
         )
+
+
+class HandwrittenListTest(unittest.TestCase):
+    def _parse(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "lista.md"
+            p.write_text(text, encoding="utf-8")
+            return [raw for raw, _, _ in parse_list_file(p)]
+
+    def test_plain_lines_without_bullets_are_items(self):
+        self.assertEqual(self._parse("Alface\nArroz\nBife\n"), ["Alface", "Arroz", "Bife"])
+
+    def test_short_line_before_bullets_is_still_a_heading(self):
+        self.assertEqual(self._parse("Hortifruti\n- Alface\n- Tomate\n"), ["Alface", "Tomate"])
+
+    def test_quantity_before_name(self):
+        self.assertEqual(extract_qty_from_raw("2 feijão normal"), ("feijão normal", 2))
+        self.assertEqual(extract_qty_from_raw("3 kg tomate"), ("3 kg tomate", None))
 
 
 class FlavorMixAnswerTest(unittest.TestCase):

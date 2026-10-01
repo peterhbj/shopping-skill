@@ -45,6 +45,9 @@ _OU_PREFIX_RE = re.compile(r"^ou\s+", re.IGNORECASE)
 _QTY_PAREN_RE = re.compile(r"^(.*?)\s*\(([^)]+)\)\s*$")
 _FLAVOR_QTY_PREFIX_RE = re.compile(r"^(?P<qty>\d+)\s*(?:x\s*)?(?P<flavor>\D.*)$", re.I)
 _FLAVOR_QTY_SUFFIX_RE = re.compile(r"^(?P<flavor>\D.*?)\s*\((?P<qty>\d+)\)$")
+_QTY_PREFIX_RE = re.compile(
+    r"^(\d{1,2})\s*x?\s+(?!(?:kgs?|g|gr|gramas?|quilos?|l|litros?|ml)\b)([^\d\s].*)$", re.I
+)
 _QTY_SUFFIX_RE = re.compile(
     r"^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:kgs?|quilos?|g|gr|gramas?)?)\s*$",
     re.I,
@@ -114,8 +117,14 @@ def parse_list_file(path: Path) -> list[tuple[str, str | None, str | None]]:
     raw_items: list[tuple[str, str | None, str | None]] = []
     current_dept: str | None = None
 
-    for line in text.splitlines():
-        original = line.strip()
+    lines = [l.strip() for l in text.splitlines()]
+
+    def _next_is_bullet(i: int) -> bool:
+        nxt = next((l for l in lines[i + 1:] if l), "")
+        return bool(_BULLET_RE.match(nxt) or _CHECKBOX_RE.match(nxt))
+
+    for i, line in enumerate(lines):
+        original = line
         if not original:
             continue
         if original.startswith("#"):
@@ -135,7 +144,9 @@ def parse_list_file(path: Path) -> list[tuple[str, str | None, str | None]]:
             line = _BULLET_RE.sub("", original).strip()
         if not line:
             continue
-        if not had_bullet:
+        # Linha curta sem marcador só é título de seção quando abre uma lista
+        # com marcadores; em lista escrita à mão ("Alface", "Arroz") é item.
+        if not had_bullet and _next_is_bullet(i):
             words = line.split()
             if (
                 len(words) <= 3
@@ -197,6 +208,9 @@ def extract_qty_from_raw(raw: str) -> tuple[str, float | int | None]:
         item_text = m.group(1).strip()
         if item_text and qty is not None:
             return item_text, qty
+    m = _QTY_PREFIX_RE.match(text)
+    if m:
+        return m.group(2).strip(), int(m.group(1))
     m = _QTY_SUFFIX_RE.match(text)
     if m:
         qty = _parse_qty_token(m.group(2))

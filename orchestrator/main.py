@@ -269,6 +269,46 @@ def _index_from_answer(text: str) -> int | None:
     return None
 
 
+def _mix_from_answer(text: str) -> list[tuple[int, int]] | None:
+    """'mix:3=6,5=6' → [(3, 6), (5, 6)] — vários sabores do mesmo item."""
+    t = (text or "").strip().lower()
+    if not t.startswith("mix:"):
+        return None
+    out = []
+    for part in t[4:].split(","):
+        idx, _, n = part.partition("=")
+        if idx.strip().isdigit() and n.strip().isdigit() and int(n) > 0:
+            out.append((int(idx), int(n)))
+    return out or None
+
+
+def _apply_mix_answer(planned: dict, mix: list[tuple[int, int]]) -> bool:
+    by_index = {c.get("index"): c for c in planned.get("candidates") or []}
+    parts = []
+    for idx, n in mix:
+        hit = by_index.get(idx)
+        if not hit or not hit.get("name"):
+            return False
+        price = float(hit.get("price_num") or 0)
+        parts.append({"index": idx, "name": hit["name"], "price_num": price,
+                      "packs_needed": n, "total_cost": round(price * n, 2)})
+    first = parts[0]
+    planned.update({
+        "status": "decided",
+        "chosen_index": first["index"],
+        "chosen_name": " + ".join(f"{p['packs_needed']}× {p['name']}" for p in parts),
+        "price_num": first["price_num"],
+        "packs_needed": sum(p["packs_needed"] for p in parts),
+        "total_cost": round(sum(p["total_cost"] for p in parts), 2),
+        "rule": "user-mix",
+        "mix": parts,
+        "notes": list(planned.get("notes") or []) + [
+            "você misturou: " + ", ".join(f"{p['packs_needed']}× [{p['index']}]" for p in parts)
+        ],
+    })
+    return True
+
+
 def _is_skip_answer(text: str) -> bool:
     from .enricher import normalize
 
@@ -364,6 +404,10 @@ def _resolve_answered(
             planned["status"] = "not_found"
             planned["notes"] = list(planned.get("notes") or []) + [f"você: pular ({ans})"]
             print(f"[main] [resolve {n}] {planned.get('raw')} → pulado", flush=True)
+            continue
+        mix = _mix_from_answer(ans)
+        if mix is not None and _apply_mix_answer(planned, mix):
+            print(f"[main] [resolve {n}] {planned.get('raw')} → mix {mix}", flush=True)
             continue
         idx = _index_from_answer(ans)
         if idx is not None:
@@ -710,6 +754,8 @@ def _resolve_needs_grok(
 
 
 def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) -> ItemReport:
+    if planned.get("mix") and planned.get("status") == "decided":
+        return _apply_mix(b, planned, item, config)
     raw = planned.get("raw") or item.get("raw", "")
     qty = planned.get("qty") or item.get("qty") or 1
     if planned.get("status") in (None, "not_found", "needs_grok", "needs_user"):
@@ -771,6 +817,26 @@ def _apply_one(b: Browser, planned: dict, item: dict, config: SelectorConfig) ->
     return _decision_to_report(
         raw, decision, qty, planned.get("status") or "ok", unit=unit
     )
+
+
+def _apply_mix(b: Browser, planned: dict, item: dict, config: SelectorConfig) -> ItemReport:
+    """Adiciona cada sabor do mix como uma compra própria e junta num relatório."""
+    reports = []
+    for part in planned["mix"]:
+        sub = {k: v for k, v in planned.items() if k != "mix"}
+        sub.update({
+            "chosen_index": part["index"], "chosen_name": part["name"],
+            "price_num": part["price_num"], "packs_needed": part["packs_needed"],
+            "total_cost": part["total_cost"],
+        })
+        reports.append(_apply_one(b, sub, item, config))
+    failed = next((r for r in reports if r.status != (planned.get("status") or "ok")), None)
+    head = failed or reports[0]
+    head.chosen_name = planned.get("chosen_name")
+    head.packs_added = sum(r.packs_added for r in reports)
+    head.total_cost = round(sum(r.total_cost for r in reports), 2)
+    head.notes = list(head.notes or []) + [f"mix de {len(reports)} sabores"]
+    return head
 
 
 def run(

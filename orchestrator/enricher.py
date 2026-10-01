@@ -43,6 +43,8 @@ _EMOJI_RE = re.compile(r"[\U00010000-\U0010FFFF]")
 _BOLD_INLINE_RE = re.compile(r"\*+([^*]+)\*+")
 _OU_PREFIX_RE = re.compile(r"^ou\s+", re.IGNORECASE)
 _QTY_PAREN_RE = re.compile(r"^(.*?)\s*\(([^)]+)\)\s*$")
+_FLAVOR_QTY_PREFIX_RE = re.compile(r"^(?P<qty>\d+)\s*(?:x\s*)?(?P<flavor>\D.*)$", re.I)
+_FLAVOR_QTY_SUFFIX_RE = re.compile(r"^(?P<flavor>\D.*?)\s*\((?P<qty>\d+)\)$")
 _QTY_SUFFIX_RE = re.compile(
     r"^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:kgs?|quilos?|g|gr|gramas?)?)\s*$",
     re.I,
@@ -68,6 +70,22 @@ def _expand_flavors(part: str) -> list[tuple[str, str | None]]:
     # Um único rótulo longo depois de ':' (ex. horário) não é lista de sabores.
     if len(flavors) == 1 and len(flavors[0].split()) > 4:
         return [(part, None)]
+    # 'Suquinho: 6 maçã, 6 uva' ou 'maçã (6)' → quantidade por sabor.
+    per: list[tuple[str, int | None]] = []
+    for f in flavors:
+        m = _FLAVOR_QTY_PREFIX_RE.match(f) or _FLAVOR_QTY_SUFFIX_RE.match(f)
+        if m:
+            per.append((m.group("flavor").strip(), int(m.group("qty"))))
+        else:
+            per.append((f, None))
+    if any(q is not None for _, q in per):
+        base = extract_qty_from_raw(left)[0]
+        return [(f"{base} ({q})" if q else base, f) for f, q in per]
+    # 'Tang (10): laranja, uva' → divide o total entre os sabores.
+    base, total = extract_qty_from_raw(left)
+    if isinstance(total, int) and total >= len(flavors) > 1:
+        share, rest = divmod(total, len(flavors))
+        return [(f"{base} ({share + (1 if i < rest else 0)})", f) for i, f in enumerate(flavors)]
     return [(left, f) for f in flavors]
 
 

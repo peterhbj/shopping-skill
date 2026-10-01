@@ -111,6 +111,21 @@
   .luna-tag { font: 500 10px/1 "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: #fff;
     padding: 5px 8px; border-radius: 99px; white-space: nowrap; margin-left: 6px; vertical-align: middle;
     background: linear-gradient(135deg, var(--blue-2), var(--blue-deep)); box-shadow: 0 0 12px var(--glow); }
+  .modes { display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 12px; border-radius: 12px;
+    border: 1px solid var(--line); background: rgba(5, 8, 18, .6); }
+  .modes button { border: 0; background: transparent; padding: 7px 14px; border-radius: 9px; font-size: 14px; color: var(--muted); }
+  .doubt:not(.mixing) .mode-one, .doubt.mixing .mode-mix { color: #fff; background: linear-gradient(135deg, var(--blue-2), var(--blue-deep)); box-shadow: 0 0 14px -2px var(--glow); }
+  .mixbox { display: none; } .doubt.mixing .mixbox { display: block; } .doubt.mixing .onebox { display: none; }
+  .mixhint:empty { display: none; } .mixhint { margin: 0 0 8px; font-size: 14px; color: #b8c7ff; }
+  .mixrow { display: flex; gap: 12px; align-items: center; padding: 9px 12px; margin: 6px 0; border-radius: 12px;
+    border: 1px solid var(--line); background: rgba(255,255,255,.02); transition: border-color .15s, background .15s; }
+  .mixrow.on { border-color: var(--blue); background: rgba(61,107,255,.12); }
+  .mixrow .price { margin-left: auto; font: 13px "JetBrains Mono", monospace; color: var(--muted); }
+  .step { display: flex; align-items: center; gap: 4px; flex: none; }
+  .step button { width: 34px; height: 34px; padding: 0; border-radius: 10px; font-size: 18px; line-height: 1; }
+  .step b { min-width: 30px; text-align: center; font: 600 16px "JetBrains Mono", monospace; }
+  .mixtotal { margin: 10px 2px 0; color: var(--muted); } .mixtotal b { color: #fff; }
+  .warn { color: #ffb86b; }
   .done-all { text-align: center; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 16px; color: #cfe0ff; }
   details { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; background: rgba(9,13,26,.4); }
   details[open] summary { margin-bottom: 8px; }
@@ -124,12 +139,14 @@
     border: 2px solid rgba(111,143,255,.25); border-top-color: var(--blue-2); animation: spin .8s linear infinite; }
   .status.bad { color: var(--bad); } .status.ok { color: #a9c1ff; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .login-wait { display: none; padding: 12px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line-strong); }
+  .login-wait p { margin: 0 0 10px; font-size: 14px; }
   .waitbox { display: none; margin-top: 14px; padding: 16px; border-radius: 14px; background: var(--soft); border: 1px solid var(--line-strong); }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
   td.r { text-align: right; white-space: nowrap; font-family: "JetBrains Mono", monospace; }
   ul.missing { margin: 0; padding-left: 18px; }
-  @media (max-width: 560px) { section { padding: 18px; } .opt { flex-wrap: wrap; } .opt .price { margin-left: 30px; text-align: left; } }
+  @media (max-width: 560px) { section { padding: 18px; } .mixrow { flex-wrap: wrap; } .opt { flex-wrap: wrap; } .opt .price { margin-left: 30px; text-align: left; } }
   @media (prefers-reduced-motion: reduce) { .track, .progress > i { transition: none; } }
 </style>
 </head>
@@ -148,6 +165,10 @@
         <b>Andorinha <span class="pill" id="st-andorinha">…</span></b>
         <p class="hint">Abre o site numa janela. Entre com seu e-mail e senha lá.</p>
         <button id="btn-andorinha">Entrar no Andorinha</button>
+        <div class="login-wait" id="login-wait">
+          <p>Entre com sua conta na janela do Andorinha que abriu. Depois clique aqui:</p>
+          <button class="primary" id="btn-login-done">Já entrei</button>
+        </div>
       </div>
       <div class="conn">
         <b>OpenAI <span class="pill" id="st-openai">…</span></b>
@@ -290,7 +311,6 @@ let since = 0, polling = false, currentJob = null;
 const JOB_NAMES = {plan: "Procurando", cart: "Mandando para o carrinho",
                    login: "Login no Andorinha", openai: "Login na OpenAI"};
 const WAIT_TEXT = {
-  login: "Entre com sua conta na janela do Andorinha. Quando terminar, clique em Pronto.",
   cart: "Está tudo no carrinho. Confira e finalize a compra na janela. Quando terminar, clique em Pronto para fechar."};
 async function startJob(path) {
   const r = await api(path, {});
@@ -320,7 +340,10 @@ async function poll() {
         st.className = "status " + (j.result === "ok" ? "ok" : "bad");
         st.textContent = `${JOB_NAMES[j.name] || j.name}: ${msg}`;
       }
-      $("waitbox").style.display = j.waiting_enter ? "block" : "none";
+      const loginWait = j.waiting_enter && j.name === "login";
+      $("login-wait").style.display = loginWait ? "block" : "none";
+      $("btn-andorinha").style.display = loginWait ? "none" : "";
+      $("waitbox").style.display = j.waiting_enter && !loginWait ? "block" : "none";
       $("wait-text").textContent = WAIT_TEXT[j.name] || "Clique em Pronto para continuar.";
       if (!j.running) {
         refreshStatus();
@@ -338,6 +361,7 @@ $("btn-plan").onclick = async () => {
 };
 $("btn-cart").onclick = async () => { await saveAnswers(); startJob("/api/cart"); };
 $("btn-enter").onclick = () => api("/api/job/enter", {});
+$("btn-login-done").onclick = () => api("/api/job/enter", {});
 
 // ---------- dúvidas
 let doubtData = null;
@@ -350,14 +374,34 @@ function doubtCard(d) {
     <label class="opt"><input type="radio" name="${name}" value="${c.index}" ${String(c.index) === ans ? "checked" : ""}>
       <span>${esc(c.name)} ${c.index === lunaIdx ? '<span class="luna-tag">sugestão do Luna</span>' : ""}</span>
       <span class="price"><b>${brl(c.price)}</b>${c.per ? `${brl(c.per)}/${esc(c.base)}` : ""}</span></label>`).join("");
-  const other = !isIdx && ans && ans !== "pular" ? ans : "";
-  return `<div class="doubt ${ans ? "done" : ""}" data-raw="${esc(d.raw)}" data-name="${name}">
+  const isMix = ans.startsWith("mix:");
+  const other = !isIdx && !isMix && ans && ans !== "pular" ? ans : "";
+  const counts = {};
+  if (isMix) ans.slice(4).split(",").forEach(p => { const [i, n] = p.split("="); counts[i] = +n || 0; });
+  const canMix = d.candidates.length > 1;
+  const target = Number(d.qty) || 0;
+  const rows = d.candidates.map(c => `
+    <div class="mixrow" data-i="${c.index}">
+      <span>${esc(c.name)}</span>
+      <span class="price"><b>${brl(c.price)}</b></span>
+      <div class="step"><button type="button" data-d="-1" aria-label="Menos">−</button><b>${counts[c.index] || 0}</b><button type="button" data-d="1" aria-label="Mais">+</button></div>
+    </div>`).join("");
+  return `<div class="doubt ${ans ? "done" : ""} ${isMix ? "mixing" : ""}" data-raw="${esc(d.raw)}" data-name="${name}"
+      data-target="${target}" data-last='${esc(JSON.stringify(d.last_mix || {}))}'>
     <h4>${esc(d.raw)}</h4>
     <p class="why">${esc(d.luna && d.luna.motivo ? "Luna: " + d.luna.motivo : d.notes.join(" "))}</p>
+    ${canMix ? `<div class="modes"><button type="button" class="mode-one">Um produto só</button><button type="button" class="mode-mix">Misturar sabores</button></div>` : ""}
+    <div class="mixbox">
+      <p class="mixhint"></p>
+      ${rows}
+      <p class="mixtotal"></p>
+    </div>
+    <div class="onebox">
     ${opts}
     <label class="opt"><input type="radio" name="${name}" value="__other" ${other ? "checked" : ""}>
       <span>Outra coisa:</span><input type="text" class="other" value="${esc(other)}" placeholder="ex.: marca Quero, 1 kg"></label>
     <label class="opt"><input type="radio" name="${name}" value="pular" ${ans === "pular" ? "checked" : ""}><span>Não comprar desta vez</span></label>
+    </div>
   </div>`;
 }
 async function loadDoubts() {
@@ -394,14 +438,56 @@ async function loadDoubts() {
     goTo(Math.max(0, carCards().findIndex(c => !answerOf(c))));
   }
   box.querySelectorAll(".doubt").forEach(card => {
-    card.addEventListener("change", () => { card.classList.toggle("done", !!answerOf(card)); updateCart(); paintCarousel(); });
+    card.addEventListener("change", () => refreshCard(card));
+    card.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || !card.contains(b)) return;
+      if (b.classList.contains("mode-mix")) startMix(card);
+      else if (b.classList.contains("mode-one")) card.classList.remove("mixing");
+      else if (b.dataset.d) {
+        const el = b.parentElement.querySelector("b");
+        el.textContent = Math.max(0, (+el.textContent || 0) + Number(b.dataset.d));
+        card.querySelector(".mixhint").textContent = "";
+      } else return;
+      refreshCard(card);
+    });
+    paintMix(card);
     card.querySelector(".other").addEventListener("focus", () => {
       card.querySelector('input[value="__other"]').checked = true;
     });
   });
   updateCart();
 }
+function mixCounts(card) {
+  return [...card.querySelectorAll(".mixrow")].map(r => [r.dataset.i, +r.querySelector(".step b").textContent || 0]);
+}
+function startMix(card) {
+  card.classList.add("mixing");
+  const hint = card.querySelector(".mixhint");
+  if (mixCounts(card).some(([, n]) => n)) return;
+  const last = JSON.parse(card.dataset.last || "{}");
+  if (!Object.keys(last).length) { hint.textContent = "Use + e − para escolher quantos de cada sabor."; return; }
+  card.querySelectorAll(".mixrow").forEach(r => { r.querySelector(".step b").textContent = last[r.dataset.i] || 0; });
+  hint.textContent = "Preenchi igual à última compra. Ajuste se quiser.";
+}
+function paintMix(card) {
+  const total = mixCounts(card).reduce((s, [, n]) => s + n, 0);
+  const target = +card.dataset.target;
+  const el = card.querySelector(".mixtotal");
+  if (el) el.innerHTML = `<b>${total}</b>${target ? ` de ${target}` : ""} unidade(s)` +
+    (target && total !== target && total ? ` <span class="warn">· a lista pedia ${target}</span>` : "");
+  card.querySelectorAll(".mixrow").forEach(r => r.classList.toggle("on", +r.querySelector(".step b").textContent > 0));
+}
+function refreshCard(card) {
+  paintMix(card);
+  card.classList.toggle("done", !!answerOf(card));
+  updateCart(); paintCarousel(); fitViewport();
+}
 function answerOf(card) {
+  if (card.classList.contains("mixing")) {
+    const parts = mixCounts(card).filter(([, n]) => n > 0);
+    return parts.length ? "mix:" + parts.map(([i, n]) => `${i}=${n}`).join(",") : "";
+  }
   const sel = card.querySelector(`input[name="${card.dataset.name}"]:checked`);
   if (!sel) return "";
   if (sel.value === "__other") return card.querySelector(".other").value.trim();

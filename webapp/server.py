@@ -19,8 +19,11 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import re
+
 import yaml
 
+from orchestrator.enricher import extract_qty_from_raw, normalize
 from orchestrator.llm.adapter import CodexCLIAdapter
 
 from . import luna
@@ -35,6 +38,7 @@ ENV_FILE = ROOT / ".env"
 ANSWERS = ROOT / "respostas-site.json"
 ANSWERS_YAML = ROOT / "respostas.yaml"
 STATE = ROOT / ".site-state.json"
+MIX_HISTORY = ROOT / "historico-sabores.json"
 BROWSER_PROFILE = ROOT / ".andorinha-profile"
 MODEL = os.getenv("SHOP_LLM_MODEL", "gpt-6-luna")
 HOST, PORT = "127.0.0.1", int(os.getenv("SHOP_PORT", "8765"))
@@ -186,7 +190,7 @@ def _jev_flag() -> str:
 
 def _job_login() -> str:
     JOB.say("[site] Abrindo o Andorinha. Entre com sua conta na janela que abriu "
-            "e depois clique em “Já entrei”.")
+            "e depois clique em “Já entrei” no card do Andorinha.")
     rc = JOB.run([sys.executable, "-m", "orchestrator.browser", "--login"], stdin=True)
     state = _read_json(STATE, {})
     state["andorinha_login"] = rc == 0
@@ -213,6 +217,34 @@ def _job_plan() -> str:
         JOB.say("[site] Sem login da OpenAI: o Luna não revisou as dúvidas.")
     _write_json(ANSWERS, answers)
     return "ok"
+
+
+def _item_key(raw: str) -> str:
+    """'Suquinho (12)' e 'suquinho (10)' → 'suquinho': o mix vale entre compras."""
+    return normalize(extract_qty_from_raw(re.sub(r"\s*\([^)]*\)\s*$", "", raw or ""))[0])
+
+
+def _remember_mix(raw: str, texto: str, run: dict) -> None:
+    if not texto.lower().startswith("mix:"):
+        return
+    item = next((it for it in run.get("items") or [] if it.get("raw") == raw), None)
+    if not item:
+        return
+    names = {c.get("index"): c.get("name") for c in item.get("candidates") or []}
+    mix = {}
+    for part in texto[4:].split(","):
+        idx, _, n = part.partition("=")
+        if idx.strip().isdigit() and n.strip().isdigit() and names.get(int(idx)):
+            mix[names[int(idx)]] = int(n)
+    if mix:
+        history = _read_json(MIX_HISTORY, {})
+        history[_item_key(raw)] = mix
+        _write_json(MIX_HISTORY, history)
+
+
+def _last_mix(raw: str, candidates: list[dict]) -> dict[int, int]:
+    saved = _read_json(MIX_HISTORY, {}).get(_item_key(raw)) or {}
+    return {c["index"]: saved[c["name"]] for c in candidates if c.get("name") in saved}
 
 
 def _pending(run: dict) -> list[dict]:
@@ -268,6 +300,7 @@ def _doubts() -> dict:
                 ],
                 "luna": it.get("luna"), "answer": a.get("texto"), "by": a.get("por"),
             }
+            entry["last_mix"] = _last_mix(it.get("raw"), entry["candidates"])
             (auto if a.get("por") == "luna" else pend).append(entry)
     return {"has_run": bool(run), "pending": pend, "auto": auto,
             "missing": missing, "decided": decided}
@@ -298,7 +331,14 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return origin in (None, f"http://{HOST}:{PORT}", f"http://localhost:{PORT}")
 
+    def _local_host(self) -> bool:
+        # Barra DNS rebinding: um site externo apontado para 127.0.0.1 chega
+        # com o próprio domínio no Host.
+        return self.headers.get("Host") in (f"{HOST}:{PORT}", f"localhost:{PORT}")
+
     def do_GET(self) -> None:
+        if not self._local_host():
+            return self._send(403, {"error": "host não permitido"})
         path, _, query = self.path.partition("?")
         if path == "/":
             return self._send(200, (STATIC / "index.html").read_bytes(), "text/html")
@@ -321,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "não encontrado"})
 
     def do_POST(self) -> None:
-        if not self._same_origin():
+        if not (self._local_host() and self._same_origin()):
             return self._send(403, {"error": "origem não permitida"})
         body = self._body()
         jobs = {
@@ -351,8 +391,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if self.path == "/api/answers":
             answers = _read_json(ANSWERS, {})
+            run = _read_json(RUN, {})
             for raw, texto in (body.get("answers") or {}).items():
                 texto = str(texto or "").strip()
+                _remember_mix(raw, texto, run)
                 if texto and (answers.get(raw) or {}).get("texto") != texto:
                     answers[raw] = {"texto": texto, "por": "voce"}
                 elif texto:
@@ -365,6 +407,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    BROWSER_PROFILE.mkdir(mode=0o700, exist_ok=True)
+    BROWSER_PROFILE.chmod(0o700)  # cookies da sessão do Andorinha
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     print(f"[site] aberto em {url} — Ctrl+C para fechar", flush=True)

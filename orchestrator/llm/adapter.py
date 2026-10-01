@@ -167,6 +167,7 @@ class CodexCLIAdapter(LLMAdapter):
                 result = subprocess.run(
                     args, capture_output=True, text=True,
                     timeout=self.timeout, cwd=tmp, stdin=subprocess.DEVNULL,
+                    env=_env_without_secrets(),
                 )
             except subprocess.TimeoutExpired as e:
                 raise LLMCallError(f"codex CLI timeout após {self.timeout}s") from e
@@ -181,6 +182,12 @@ class CodexCLIAdapter(LLMAdapter):
             if out.is_file():
                 return out.read_text(encoding="utf-8").strip()
             return (result.stdout or "").strip()
+
+
+def _env_without_secrets() -> dict:
+    """O modelo lê nomes de produtos vindos do site; não deixe chaves ao alcance dele."""
+    return {k: v for k, v in os.environ.items()
+            if k != "TYPESAFE_API_KEY" and not k.endswith(("_API_KEY", "_TOKEN", "_SECRET"))}
 
 
 def make_adapter(raw_cfg: dict | None = None) -> LLMAdapter:

@@ -218,6 +218,7 @@
 
   <section id="doubts-sec">
     <h2><span class="num">4</span> Dúvidas</h2>
+    <div class="fixed" id="stale" hidden>A lista mudou depois da última busca. Clique em “Procurar tudo” para atualizar as dúvidas.</div>
     <div id="doubts"><p class="hint">Faça a busca primeiro.</p></div>
     <div class="row" style="margin-top:12px">
       <button id="btn-save">Salvar respostas</button>
@@ -235,11 +236,12 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const api = async (path, body) => {
+const api = async (path, body, quiet = false) => {
   const r = await fetch(path, body === undefined ? {} : {
     method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const data = await r.json().catch(() => ({}));
-  if (!r.ok && data.error) alert(data.error);
+  data.status = r.status;
+  if (!r.ok && data.error && !quiet) alert(data.error);
   return data;
 };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -298,13 +300,20 @@ function formatList(text) {
   if (!t.startsWith("# ")) t = "# Lista de Compras\n\n" + t;
   return t;
 }
+let saveLater = false;
+async function saveList() {
+  const r = await api("/api/list", {text: $("list").value}, true);
+  saveLater = r.status === 409;
+  $("saved").textContent = r.ok ? "Salvo" : saveLater ? "Salvo quando a busca terminar" : "Não salvou";
+  if (r.ok && doubtData && doubtData.has_run && !doubtData.stale) {
+    doubtData.stale = true;
+    paintStale(); updateCart();
+  }
+}
 function scheduleSave() {
   $("saved").textContent = "Salvando…";
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    const r = await api("/api/list", {text: $("list").value});
-    $("saved").textContent = r.ok ? "Salvo" : "Não salvou";
-  }, 600);
+  saveTimer = setTimeout(saveList, 600);
 }
 $("list").oninput = () => { renderPreview($("list").value); scheduleSave(); };
 $("btn-format").onclick = () => {
@@ -342,7 +351,10 @@ async function poll() {
         st.textContent = `${JOB_NAMES[j.name] || j.name}… ${last.slice(0, 90)}`;
       } else if (j.name) {
         const msg = {ok: "Pronto!", erro: "Deu erro. Veja os detalhes técnicos.",
-                     faltam: "Ainda faltam dúvidas para responder."}[j.result] || "";
+                     faltam: "Ainda faltam dúvidas para responder.",
+                     lista: "A lista mudou depois da busca. Clique em “Procurar tudo” de novo.",
+                     vazia: "A lista está vazia. Escreva os itens no passo 2.",
+                     login: "O Andorinha está sem login. Entre de novo no passo 1 e tente outra vez."}[j.result] || "";
         st.className = "status " + (j.result === "ok" ? "ok" : "bad");
         st.textContent = `${JOB_NAMES[j.name] || j.name}: ${msg}`;
       }
@@ -353,6 +365,7 @@ async function poll() {
       $("wait-text").textContent = WAIT_TEXT[j.name] || "Clique em Pronto para continuar.";
       if (!j.running) {
         refreshStatus();
+        if (saveLater) await saveList();
         if (["plan", "cart"].includes(j.name)) loadDoubts();
         break;
       }
@@ -384,7 +397,7 @@ function doubtCard(d) {
   const other = !isIdx && !isMix && ans && ans !== "pular" ? ans : "";
   const counts = {};
   if (isMix) ans.slice(4).split(",").forEach(p => { const [i, n] = p.split("="); counts[i] = +n || 0; });
-  const canMix = d.candidates.length > 1;
+  const canMix = d.candidates.length > 1 && !["kg", "g"].includes(String(d.unit || "").toLowerCase());
   const target = Number(d.qty) || 0;
   const rows = d.candidates.map(c => `
     <div class="mixrow" data-i="${c.index}">
@@ -395,6 +408,7 @@ function doubtCard(d) {
   return `<div class="doubt ${ans ? "done" : ""} ${isMix ? "mixing" : ""}" data-raw="${esc(d.raw)}" data-name="${name}"
       data-target="${target}" data-last='${esc(JSON.stringify(d.last_mix || {}))}'>
     <h4>${esc(d.raw)}</h4>
+    ${d.failed ? `<p class="fixed">Não achei nada com “<b>${esc(d.failed)}</b>”. Escolha uma opção ou tente outro nome.</p>` : ""}
     ${d.was ? `<p class="fixed">O sistema tinha escolhido <b>${esc(d.was)}</b>. O Luna achou que não é o pedido.</p>` : ""}
     <p class="why">${esc(d.luna && d.luna.motivo ? "Luna: " + d.luna.motivo : d.notes.join(" "))}</p>
     ${canMix ? `<div class="modes"><button type="button" class="mode-one">Um produto só</button><button type="button" class="mode-mix">Misturar sabores</button></div>` : ""}
@@ -415,6 +429,7 @@ async function loadDoubts() {
   const d = doubtData = await api("/api/doubts");
   const box = $("doubts");
   if (!d.has_run) { box.innerHTML = '<p class="hint">Faça a busca primeiro.</p>'; return updateCart(); }
+  paintStale();
   let html = "";
   html += d.pending.length ? `
     <div class="carousel">
@@ -465,6 +480,7 @@ async function loadDoubts() {
     card.querySelector(".other").addEventListener("focus", () => {
       card.querySelector('input[value="__other"]').checked = true;
     });
+    card.querySelector(".other").addEventListener("input", () => refreshCard(card));
   });
   updateCart();
 }
@@ -488,10 +504,14 @@ function paintMix(card) {
     (target && total !== target && total ? ` <span class="warn">· a lista pedia ${target}</span>` : "");
   card.querySelectorAll(".mixrow").forEach(r => r.classList.toggle("on", +r.querySelector(".step b").textContent > 0));
 }
+function paintStale() { $("stale").hidden = !(doubtData && doubtData.stale); }
+let answersTimer;
 function refreshCard(card) {
   paintMix(card);
   card.classList.toggle("done", !!answerOf(card));
   updateCart(); paintCarousel(); fitViewport();
+  clearTimeout(answersTimer);
+  answersTimer = setTimeout(saveAnswers, 800);
 }
 function renameInList(btn) {
   const from = btn.dataset.from.replace(/\s*\([^)]*\)\s*$/, "").trim();
@@ -561,16 +581,18 @@ document.addEventListener("keydown", (e) => {
 function updateCart() {
   const cards = [...document.querySelectorAll("#doubts .doubt")];
   const missing = cards.filter(c => !answerOf(c)).length;
-  const ready = doubtData && doubtData.has_run && missing === 0;
+  const ready = doubtData && doubtData.has_run && !doubtData.stale && missing === 0;
   $("btn-cart").disabled = !ready || !!currentJob;
   $("cart-hint").textContent = !doubtData || !doubtData.has_run ? "Faça a busca primeiro."
+    : doubtData.stale ? "A lista mudou: procure de novo antes."
     : missing ? `Responda ${missing} dúvida(s) antes.` : "";
 }
 async function saveAnswers() {
   const answers = {};
   document.querySelectorAll("#doubts .doubt").forEach(c => { answers[c.dataset.raw] = answerOf(c); });
-  const r = await api("/api/answers", {answers});
-  $("answers-saved").textContent = r.ok ? "Respostas salvas." : "";
+  clearTimeout(answersTimer);
+  const r = await api("/api/answers", {answers}, true);
+  $("answers-saved").textContent = r.ok ? "Respostas salvas ✓" : "Não salvou. Tente de novo.";
 }
 $("btn-save").onclick = saveAnswers;
 

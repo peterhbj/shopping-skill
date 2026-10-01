@@ -9,6 +9,7 @@ chaves ficam neste computador. Checkout e pagamento continuam manuais.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -23,7 +24,7 @@ import re
 
 import yaml
 
-from orchestrator.enricher import extract_qty_from_raw, normalize
+from orchestrator.enricher import extract_qty_from_raw, normalize, parse_list_file
 from orchestrator.llm.adapter import CodexCLIAdapter
 
 from . import luna
@@ -93,6 +94,17 @@ def _child_env() -> dict:
     return env
 
 
+def _set_state(**values) -> None:
+    state = _read_json(STATE, {})
+    state.update(values)
+    _write_json(STATE, state)
+
+
+def _list_hash() -> str:
+    text = LIST.read_text(encoding="utf-8") if LIST.is_file() else ""
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def _codex_logged_in() -> bool:
     if not shutil.which("codex"):
         return False
@@ -147,7 +159,7 @@ class Job:
     def say(self, line: str) -> None:
         self.log.append(line.rstrip())
 
-    def run(self, args: list[str], stdin: bool = False) -> int:
+    def run(self, args: list[str], stdin: bool = False, timeout_s: float | None = None) -> int:
         shown = args[2:] if args[:2] == [sys.executable, "-m"] else args
         self.say("$ " + " ".join(shown))
         self.proc = subprocess.Popen(
@@ -156,11 +168,22 @@ class Job:
             stdin=subprocess.PIPE if stdin else subprocess.DEVNULL,
         )
         assert self.proc.stdout
-        for line in self.proc.stdout:
-            self.say(line)
-            if "Pressione ENTER" in line or "keep_open=True" in line:
-                self.waiting_enter = True
-        return self.proc.wait()
+        proc = self.proc
+        timer = threading.Timer(timeout_s, proc.kill) if timeout_s else None
+        if timer:
+            timer.start()
+        try:
+            for line in proc.stdout:
+                self.say(line)
+                if "Pressione ENTER" in line or "keep_open=True" in line:
+                    self.waiting_enter = True
+                if "não há sessão logada" in line:
+                    _set_state(andorinha_login=False)
+                    self.say("[site] O Andorinha está sem login. Entre de novo no passo 1.")
+            return proc.wait()
+        finally:
+            if timer:
+                timer.cancel()
 
     def press_enter(self) -> bool:
         p = self.proc
@@ -192,19 +215,21 @@ def _job_login() -> str:
     JOB.say("[site] Abrindo o Andorinha. Entre com sua conta na janela que abriu "
             "e depois clique em “Já entrei” no card do Andorinha.")
     rc = JOB.run([sys.executable, "-m", "orchestrator.browser", "--login"], stdin=True)
-    state = _read_json(STATE, {})
-    state["andorinha_login"] = rc == 0
-    _write_json(STATE, state)
+    _set_state(andorinha_login=rc == 0)
     return "ok" if rc == 0 else "erro"
 
 
 def _job_openai_login() -> str:
     JOB.say("[site] Abrindo o login da OpenAI no navegador…")
-    rc = JOB.run(["codex", "login"])
+    rc = JOB.run(["codex", "login"], timeout_s=600)
     return "ok" if rc == 0 else "erro"
 
 
 def _job_plan() -> str:
+    list_hash = _list_hash()
+    if not LIST.is_file() or not parse_list_file(LIST):
+        JOB.say("[site] A lista está vazia. Escreva os itens no passo 2.")
+        return "vazia"
     rc = JOB.run(_orch("plan", "--no-llm", "--no-keep-open", _jev_flag()))
     if rc != 0:
         return "erro"
@@ -216,6 +241,7 @@ def _job_plan() -> str:
     else:
         JOB.say("[site] Sem login da OpenAI: o Luna não revisou as dúvidas.")
     _write_json(ANSWERS, answers)
+    _set_state(plan_list_hash=list_hash)
     return "ok"
 
 
@@ -257,6 +283,12 @@ def _job_cart() -> str:
     if not run:
         JOB.say("[site] Faça a busca de teste primeiro.")
         return "erro"
+    if not _read_json(STATE, {}).get("andorinha_login"):
+        JOB.say("[site] Entre no Andorinha (passo 1) antes de mandar para o carrinho.")
+        return "login"
+    if _read_json(STATE, {}).get("plan_list_hash") != _list_hash():
+        JOB.say("[site] A lista mudou depois da busca. Clique em “Procurar tudo” de novo.")
+        return "lista"
     if answers and _pending(run):
         rows = [{"item": raw, "texto": a["texto"]} for raw, a in answers.items() if a.get("texto")]
         ANSWERS_YAML.write_text(
@@ -266,12 +298,19 @@ def _job_cart() -> str:
         if JOB.run(_orch("resolve", "--no-keep-open", "--answers", str(ANSWERS_YAML))) != 0:
             return "erro"
         run = _read_json(RUN, {})
+        for it in _pending(run):
+            a = answers.get(it.get("raw")) or {}
+            if a.get("texto"):
+                answers[it.get("raw")] = {"texto": "", "falhou": a["texto"]}
+        _write_json(ANSWERS, answers)
     left = _pending(run)
     if left:
         JOB.say(f"[site] Ainda faltam {len(left)} dúvida(s). Responda e tente de novo.")
         return "faltam"
     JOB.say("[site] Adicionando ao carrinho. A janela fica aberta para você finalizar.")
     rc = JOB.run(_orch("apply", "--no-llm"), stdin=True)
+    if rc == 3:
+        return "login"
     return "ok" if rc == 0 else "erro"
 
 
@@ -302,12 +341,14 @@ def _doubts() -> dict:
                 ],
                 "luna": it.get("luna"), "answer": a.get("texto"), "by": a.get("por"),
             }
+            entry["failed"] = a.get("falhou")
             entry["last_mix"] = _last_mix(it.get("raw"), entry["candidates"])
             was = next((n for n in entry["notes"] if n.startswith("escolha automática era: ")), None)
             entry["was"] = was.split(": ", 1)[1] if was else None
             (auto if a.get("por") == "luna" else pend).append(entry)
+    stale = bool(run) and _read_json(STATE, {}).get("plan_list_hash") != _list_hash()
     return {"has_run": bool(run), "pending": pend, "auto": auto,
-            "missing": missing, "decided": decided}
+            "missing": missing, "decided": decided, "stale": stale}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -399,6 +440,8 @@ class Handler(BaseHTTPRequestHandler):
             for raw, texto in (body.get("answers") or {}).items():
                 texto = str(texto or "").strip()
                 _remember_mix(raw, texto, run)
+                if not texto and (answers.get(raw) or {}).get("falhou"):
+                    continue
                 if texto and (answers.get(raw) or {}).get("texto") != texto:
                     answers[raw] = {"texto": texto, "por": "voce"}
                 elif texto:

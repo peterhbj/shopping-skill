@@ -18,7 +18,10 @@ candidatos, considerando custo-benefício e a preferência de marca.
 {alternatives}
 
 # Regras para sua decisão
-0. O que o cliente disse manda. Se pediu pular, não escolha nada.
+0. O que o cliente disse manda. Se pediu pular, não escolha nada. Se o que
+   ele disse não corresponde a nenhum candidato (outro produto, nome que você
+   não reconhece, sabor ou marca que não está na lista), não adivinhe:
+   devolva index null para a pergunta voltar para ele.
 1. Se a alternativa for ≥25% mais barata por unidade base **e** for da mesma
    família/tipo de produto, escolha a alternativa.
 2. Se a alternativa for 15-25% mais barata mas for marca desconhecida ou
@@ -32,4 +35,4 @@ candidatos, considerando custo-benefício e a preferência de marca.
 # Formato da resposta
 Retorne APENAS um objeto JSON, sem markdown, sem código, sem texto extra:
 
-{{"index": <índice escolhido>, "reason": "<motivo em 1 linha>"}}
+{{"index": <índice escolhido ou null>, "reason": "<motivo em 1 linha>"}}

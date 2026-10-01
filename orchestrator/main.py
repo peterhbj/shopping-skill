@@ -333,12 +333,21 @@ def _apply_answers_file(planned_list: list[dict], answers_path: Path | None) -> 
             texto = str(row.get("texto") or row.get("answer") or "").strip()
             if not needle or not texto:
                 continue
-            for it in planned_list:
-                raw = str(it.get("raw") or "").lower()
-                if needle in raw or raw in needle:
-                    it["user_answer"] = texto
-                    n += 1
-                    break
+            # Nome exato primeiro: "leite" não pode cair em "Leite em pó".
+            # Aproximado só para respostas escritas à mão, e só entre as dúvidas.
+            target = next(
+                (it for it in planned_list if str(it.get("raw") or "").strip().lower() == needle.strip()),
+                None,
+            ) or next(
+                (it for it in planned_list
+                 if it.get("status") == "needs_user" and not it.get("user_answer")
+                 and (needle in str(it.get("raw") or "").lower()
+                      or str(it.get("raw") or "").lower() in needle)),
+                None,
+            )
+            if target is not None:
+                target["user_answer"] = texto
+                n += 1
     return n
 
 
@@ -933,6 +942,11 @@ def run(
             warn = None
         if warn:
             print(f"[main] AVISO: {warn}", flush=True)
+            if command in ("apply", "run") and not dry_run:
+                # Sem login os cliques não pegam e o carrinho fica vazio.
+                print("[main] ERRO: entre no Andorinha antes de adicionar ao carrinho.", flush=True)
+                b.keep_open = False
+                return 3
 
         try:
             badge_before = b.cart_badge()

@@ -272,13 +272,46 @@ class Browser:
     def __exit__(self, *exc):
         if getattr(self, "keep_open", False):
             print("[browser] keep_open=True — browser permanece aberto. Feche a janela quando terminar a compra.", flush=True)
-            try:
-                input("[browser] Pressione ENTER aqui quando terminar de revisar o carrinho... ")
-            except EOFError:
-                import time
-                print("[browser] (sem stdin) aguardando 30 min antes de fechar...", flush=True)
-                time.sleep(1800)
+            print("[browser] Pressione ENTER aqui quando terminar de revisar o carrinho (ou feche a janela).", flush=True)
+            self._wait_for_user()
         self.close()
+
+    def _wait_for_user(self, max_s: float = 6 * 3600) -> None:
+        """Espera ENTER no stdin ou a pessoa fechar a janela, o que vier antes."""
+        import sys
+        import threading
+
+        entered = threading.Event()
+
+        def _read_stdin() -> None:
+            try:
+                if sys.stdin and sys.stdin.readline():
+                    entered.set()
+            except (OSError, ValueError):
+                pass
+
+        threading.Thread(target=_read_stdin, daemon=True).start()
+        deadline = time.time() + max_s
+        while time.time() < deadline and not entered.is_set():
+            if self._window_closed():
+                print("[browser] janela fechada.", flush=True)
+                return
+            try:
+                self._page.wait_for_timeout(1000)  # também processa os eventos de fechar
+            except Exception:
+                return
+
+    def _window_closed(self) -> bool:
+        try:
+            if self._page and not self._page.is_closed():
+                return False
+            pages = [p for p in self._page.context.pages if not p.is_closed()] if self._page else []
+        except Exception:
+            return True
+        if pages:
+            self._page = pages[0]  # fechou só uma aba
+            return False
+        return True
 
     def start(self) -> None:
         self._pw = sync_playwright().start()
@@ -639,6 +672,7 @@ class Browser:
             return None
         markers = (
             "entre ou cadastre-se",
+            "entre | cadastre-se",
             "fazer login",
             "identifique-se",
             "entrar / cadastrar",

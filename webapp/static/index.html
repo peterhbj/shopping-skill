@@ -85,7 +85,7 @@
   .progress { flex: 1; height: 4px; border-radius: 99px; background: rgba(255,255,255,.06); overflow: hidden; }
   .progress > i { display: block; height: 100%; width: 0; border-radius: 99px; transition: width .35s;
     background: linear-gradient(90deg, var(--blue-deep), var(--blue-2)); box-shadow: 0 0 12px var(--glow); }
-  .viewport { overflow: hidden; border-radius: 16px; transition: height .35s ease; }
+  .viewport { overflow: hidden; overflow: clip; border-radius: 16px; transition: height .35s ease; }
   .track { display: flex; align-items: flex-start; transition: transform .45s cubic-bezier(.22, .8, .25, 1); }
   .track > .doubt { flex: 0 0 100%; margin: 0; }
   .car-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
@@ -447,7 +447,6 @@ async function loadDoubts() {
       else if (b.dataset.d) {
         const el = b.parentElement.querySelector("b");
         el.textContent = Math.max(0, (+el.textContent || 0) + Number(b.dataset.d));
-        card.querySelector(".mixhint").textContent = "";
       } else return;
       refreshCard(card);
     });

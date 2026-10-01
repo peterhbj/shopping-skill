@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import os
 import tempfile
 import time
 import urllib.error
@@ -252,7 +253,7 @@ class Browser:
         self.nav_timeout_ms = nav_timeout_ms
         self.page_index = page_index
         self.launch_own = launch_own
-        self.user_data_dir = user_data_dir or str(Path(tempfile.gettempdir()) / "andorinha-pw-profile")
+        self.user_data_dir = user_data_dir or (os.getenv("ANDORINHA_PROFILE_DIR") or str(Path(tempfile.gettempdir()) / "andorinha-pw-profile"))
         self.headless = headless
         self.keep_open = keep_open
         self._pw = None
@@ -807,7 +808,7 @@ def _lines_from_cart_payloads(payloads: list[dict]) -> list[dict]:
 
 def _login_session() -> int:
     """Abre o Chromium persistente na home do Andorinha só para o usuário logar."""
-    profile = str(Path(tempfile.gettempdir()) / "andorinha-pw-profile")
+    profile = (os.getenv("ANDORINHA_PROFILE_DIR") or str(Path(tempfile.gettempdir()) / "andorinha-pw-profile"))
     print(f"[login] abrindo Chromium do Playwright", flush=True)
     print(f"[login] perfil: {profile}", flush=True)
     print("[login] faça login no Andorinha nesta janela (não no Chrome normal).", flush=True)

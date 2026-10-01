@@ -15,3 +15,6 @@ andorinha-pw-profile/
 *.pyc
 .DS_Store
 Thumbs.db
+.andorinha-profile/
+.site-state.json
+respostas-site.json

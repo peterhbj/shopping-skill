@@ -135,6 +135,65 @@ class GrokCLIAdapter(LLMAdapter):
         return raw
 
 
+class CodexCLIAdapter(LLMAdapter):
+    """`codex exec` headless, usando o login do ChatGPT do Codex CLI (OAuth)."""
+
+    def __init__(
+        self,
+        model: str = "gpt-6-luna",
+        timeout_s: int = 300,
+        reasoning_effort: str = "low",
+        codex_bin: Optional[str] = None,
+    ):
+        self.model = model
+        self.timeout = timeout_s
+        self.reasoning_effort = reasoning_effort
+        self.codex_bin = codex_bin or shutil.which("codex") or "codex"
+
+    def ask(self, prompt: str) -> str:
+        with tempfile.TemporaryDirectory(prefix="shop-codex-") as tmp:
+            out = Path(tmp) / "last.txt"
+            args = [
+                self.codex_bin, "exec",
+                "-m", self.model,
+                "-s", "read-only",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "-c", f"model_reasoning_effort={self.reasoning_effort}",
+                "-o", str(out),
+                prompt,
+            ]
+            try:
+                result = subprocess.run(
+                    args, capture_output=True, text=True,
+                    timeout=self.timeout, cwd=tmp, stdin=subprocess.DEVNULL,
+                )
+            except subprocess.TimeoutExpired as e:
+                raise LLMCallError(f"codex CLI timeout após {self.timeout}s") from e
+            except FileNotFoundError as e:
+                raise LLMCallError(
+                    "codex CLI não encontrado. Instale o Codex CLI e rode `codex login`."
+                ) from e
+            if result.returncode != 0:
+                raise LLMCallError(
+                    f"codex CLI rc={result.returncode}\nstderr: {(result.stderr or '')[-400:]}"
+                )
+            if out.is_file():
+                return out.read_text(encoding="utf-8").strip()
+            return (result.stdout or "").strip()
+
+
+def make_adapter(raw_cfg: dict | None = None) -> LLMAdapter:
+    """Escolhe o adapter: env SHOP_LLM_PROVIDER/SHOP_LLM_MODEL > perfil > grok."""
+    raw_cfg = raw_cfg or {}
+    provider = (os.getenv("SHOP_LLM_PROVIDER") or raw_cfg.get("llm_provider") or "grok").lower()
+    model = os.getenv("SHOP_LLM_MODEL") or raw_cfg.get("llm_model")
+    timeout = int(raw_cfg.get("llm_timeout_s", 120))
+    if provider == "codex":
+        return CodexCLIAdapter(model=model or "gpt-6-luna", timeout_s=max(timeout, 300))
+    return GrokCLIAdapter(model=model or "grok-4.6", timeout_s=timeout)
+
+
 class ClaudeCodeCLIAdapter(LLMAdapter):
     def __init__(
         self,

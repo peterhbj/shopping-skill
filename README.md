@@ -16,6 +16,29 @@ O Grok Build CLI só é necessário para o fluxo legado com LLM interno.
 
 ## Uso
 
+### Pelo site (o jeito mais fácil)
+
+```bash
+python -m webapp.server
+```
+
+Abre `http://127.0.0.1:8765`, que roda só neste computador. Na página:
+
+1. **Conexões**: entrar no Andorinha (a senha é digitada na janela do site e o
+   login fica salvo em `.andorinha-profile/`), entrar na OpenAI (usa o `codex
+   login` com a conta do ChatGPT) e colar a chave do Jev (guardada no `.env`).
+2. **Lista**: editor de `lista-compras.md` com prévia ao vivo e o botão
+   "Arrumar em lista".
+3. **Procurar tudo**: roda `plan` (regras + Jev) e depois o GPT-6 Luna revisa
+   todas as dúvidas numa única chamada. Só decide sozinho com confiança ≥ 0.85.
+   Nada vai para o carrinho.
+4. **Dúvidas**: carrossel com o que sobrou para responder. As respostas ficam
+   em `respostas-site.json`.
+5. **Adicionar ao carrinho**: roda `resolve` com as respostas e depois `apply`,
+   deixando a janela aberta para finalizar a compra.
+
+O modelo pode ser trocado com `SHOP_LLM_MODEL`, e a porta com `SHOP_PORT`.
+
 ### Pelo Codex CLI, usando a assinatura do ChatGPT
 
 Com o Codex CLI instalado e autenticado com sua conta do ChatGPT, abra este

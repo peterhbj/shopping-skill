@@ -43,6 +43,7 @@ from .enricher import (
 )
 from .llm.adapter import (
     GrokCLIAdapter,
+    make_adapter,
     LLMAdapter,
     LLMCallError,
     render_ambiguity_prompt,
@@ -824,8 +825,6 @@ def run(
         f"{enriched['meta']['unmatched']} unmatched) cmd={command}",
         flush=True,
     )
-    llm_model = str(raw_cfg.get("llm_model") or "grok-4.6")
-    llm_timeout = int(raw_cfg.get("llm_timeout_s", 120))
     browser_cfg = raw_cfg.get("browser", {}) or {}
     cdp_url = str(browser_cfg.get("cdp_url", "http://localhost:9222"))
     click_settle_ms = int(browser_cfg.get("click_settle_ms", 250))
@@ -833,8 +832,8 @@ def run(
 
     adapter: LLMAdapter | None = None
     if use_llm and command != "apply":
-        adapter = GrokCLIAdapter(model=llm_model, timeout_s=llm_timeout)
-        print("[main] LLM habilitado (grok -p)", flush=True)
+        adapter = make_adapter(raw_cfg)
+        print(f"[main] LLM habilitado ({type(adapter).__name__})", flush=True)
     else:
         print("[main] LLM desligado neste comando", flush=True)
 

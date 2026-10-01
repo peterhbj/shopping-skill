@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compras Andorinha</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+  :root {
+    --bg: #070a14; --bg2: #0b1020; --card: rgba(18, 24, 44, .72); --card-solid: #121a30;
+    --ink: #e8ecf8; --muted: #8b95b3; --line: rgba(120, 140, 210, .16); --line-strong: rgba(120, 150, 255, .32);
+    --blue: #3d6bff; --blue-2: #6f8fff; --blue-deep: #1f3fd1; --glow: rgba(61, 107, 255, .45);
+    --ok: #5aa2ff; --bad: #ff6b7d; --soft: rgba(61, 107, 255, .14);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--ink); min-height: 100vh;
+    font: 16px/1.55 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(61,107,255,.22), transparent 60%),
+      radial-gradient(700px 500px at -10% 30%, rgba(31,63,209,.16), transparent 60%),
+      linear-gradient(180deg, var(--bg2), var(--bg)); background-attachment: fixed; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .35;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 44px 44px; mask-image: radial-gradient(ellipse at 50% 0%, #000 20%, transparent 70%); }
+  main { position: relative; max-width: 1000px; margin: 0 auto; padding: 40px 16px 96px; }
+  header { margin-bottom: 28px; }
+  .eyebrow { font: 500 12px/1 "JetBrains Mono", monospace; letter-spacing: .18em; text-transform: uppercase; color: var(--blue-2); }
+  h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.1; margin: 10px 0 8px; letter-spacing: -.02em;
+    background: linear-gradient(90deg, #fff, #a9bcff 60%, var(--blue-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--muted); margin: 0; max-width: 620px; }
+  section { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+    padding: 24px; margin-bottom: 20px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 20px 60px -30px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04); }
+  section::after { content: ""; position: absolute; inset: -1px; border-radius: 20px; padding: 1px; pointer-events: none;
+    background: linear-gradient(135deg, rgba(111,143,255,.55), transparent 35%, transparent 70%, rgba(61,107,255,.3));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  h2 { font-size: 19px; font-weight: 600; margin: 0 0 6px; display: flex; gap: 12px; align-items: center; letter-spacing: -.01em; }
+  .num { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; flex: none;
+    font: 600 13px/1 "JetBrains Mono", monospace; color: #fff;
+    background: linear-gradient(135deg, var(--blue-2), var(--blue-deep)); box-shadow: 0 0 18px var(--glow); }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
+  .conn { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: rgba(9, 13, 26, .55);
+    display: flex; flex-direction: column; gap: 8px; transition: border-color .2s, box-shadow .2s; }
+  .conn:hover { border-color: var(--line-strong); box-shadow: 0 0 0 4px rgba(61,107,255,.06); }
+  .conn b { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+  .conn .hint { flex: 1; margin: 0; }
+  .pill { font: 500 11px/1 "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase;
+    padding: 6px 10px; border-radius: 99px; color: var(--muted); background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+  .pill::before { content: "●"; margin-right: 6px; color: #ff9f5a; }
+  .pill.ok { color: #cfe0ff; background: var(--soft); border-color: var(--line-strong); }
+  .pill.ok::before { color: var(--blue-2); text-shadow: 0 0 8px var(--blue); }
+  button { font: inherit; font-weight: 500; border: 1px solid var(--line-strong); border-radius: 12px; padding: 10px 18px;
+    cursor: pointer; background: rgba(61,107,255,.08); color: var(--ink); transition: transform .12s, box-shadow .2s, background .2s; }
+  button:hover:not(:disabled) { background: rgba(61,107,255,.18); box-shadow: 0 0 0 4px rgba(61,107,255,.1); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button.primary { border-color: transparent; color: #fff; font-weight: 600;
+    background: linear-gradient(135deg, var(--blue-2), var(--blue) 45%, var(--blue-deep)); box-shadow: 0 10px 30px -10px var(--glow); }
+  button.primary:hover:not(:disabled) { box-shadow: 0 12px 36px -8px var(--glow), 0 0 0 4px rgba(61,107,255,.18); }
+  button.big { padding: 15px 28px; font-size: 17px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  input[type=password], input[type=text] { font: inherit; padding: 10px 12px; border-radius: 12px; min-width: 0; flex: 1;
+    border: 1px solid var(--line); background: rgba(5, 8, 18, .7); color: var(--ink); outline: none; transition: border-color .2s, box-shadow .2s; }
+  input[type=password]:focus, input[type=text]:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(61,107,255,.18); }
+  .editor { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+  @media (max-width: 760px) { .editor { grid-template-columns: 1fr; } }
+  textarea { width: 100%; min-height: 400px; font: 14px/1.6 "JetBrains Mono", ui-monospace, monospace; padding: 14px;
+    border-radius: 14px; border: 1px solid var(--line); background: rgba(5, 8, 18, .75); color: #cdd6f4; resize: vertical; outline: none; }
+  .preview { border: 1px solid var(--line); border-radius: 14px; padding: 6px 18px 14px; max-height: 440px; overflow: auto; background: rgba(9, 13, 26, .45); }
+  .preview h3 { font: 600 11px/1 "JetBrains Mono", monospace; letter-spacing: .14em; text-transform: uppercase; margin: 18px 0 8px; color: var(--blue-2); }
+  .preview ul { list-style: none; padding: 0; margin: 0; }
+  .preview li { padding: 4px 0; display: flex; gap: 10px; align-items: center; }
+  .preview li::before { content: ""; width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--line-strong); flex: none; }
+  .hint { color: var(--muted); font-size: 14px; }
+  code { font: 13px "JetBrains Mono", monospace; color: #b8c7ff; background: var(--soft); padding: 1px 6px; border-radius: 6px; }
+  .saved { font: 12px "JetBrains Mono", monospace; color: var(--muted); }
+
+  /* carrossel */
+  .carousel { margin-top: 16px; }
+  .car-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .counter { font: 500 13px/1 "JetBrains Mono", monospace; color: var(--muted); }
+  .counter b { color: #fff; font-size: 16px; }
+  .progress { flex: 1; height: 4px; border-radius: 99px; background: rgba(255,255,255,.06); overflow: hidden; }
+  .progress > i { display: block; height: 100%; width: 0; border-radius: 99px; transition: width .35s;
+    background: linear-gradient(90deg, var(--blue-deep), var(--blue-2)); box-shadow: 0 0 12px var(--glow); }
+  .viewport { overflow: hidden; border-radius: 16px; transition: height .35s ease; }
+  .track { display: flex; align-items: flex-start; transition: transform .45s cubic-bezier(.22, .8, .25, 1); }
+  .track > .doubt { flex: 0 0 100%; margin: 0; }
+  .car-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  .arrow { width: 52px; height: 52px; padding: 0; border-radius: 50%; display: grid; place-items: center; font-size: 22px; }
+  .dots { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .dots button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 0; background: rgba(255,255,255,.14); }
+  .dots button.answered { background: rgba(111,143,255,.55); }
+  .dots button.cur { background: var(--blue-2); box-shadow: 0 0 10px var(--blue); transform: scale(1.3); }
+
+  .doubt { border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin: 10px 0; background: rgba(9, 13, 26, .6); transition: border-color .3s; }
+  .doubt.done { border-color: var(--line-strong); }
+  .doubt h4 { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -.01em; display: flex; gap: 10px; align-items: center; }
+  .doubt.done h4::after { content: "✓ respondida"; font: 500 11px/1 "JetBrains Mono", monospace; color: var(--blue-2);
+    padding: 5px 8px; border-radius: 99px; background: var(--soft); }
+  .why { font-size: 14px; color: var(--muted); margin: 0 0 14px; padding-left: 12px; border-left: 2px solid var(--blue); }
+  .opt { display: flex; gap: 12px; align-items: center; padding: 11px 14px; margin: 6px 0; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--line); background: rgba(255,255,255,.02); transition: background .15s, border-color .15s, box-shadow .15s; }
+  .opt:hover { border-color: var(--line-strong); background: rgba(61,107,255,.07); }
+  .opt:has(input:checked) { border-color: var(--blue); background: rgba(61,107,255,.14); box-shadow: 0 0 0 1px var(--blue) inset, 0 8px 24px -14px var(--glow); }
+  .opt input[type=radio] { accent-color: var(--blue); width: 18px; height: 18px; flex: none; }
+  .opt .price { margin-left: auto; white-space: nowrap; font: 13px "JetBrains Mono", monospace; color: var(--muted); text-align: right; }
+  .opt .price b { display: block; color: #fff; font-size: 14px; }
+  .luna-tag { font: 500 10px/1 "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: #fff;
+    padding: 5px 8px; border-radius: 99px; white-space: nowrap; margin-left: 6px; vertical-align: middle;
+    background: linear-gradient(135deg, var(--blue-2), var(--blue-deep)); box-shadow: 0 0 12px var(--glow); }
+  .done-all { text-align: center; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 16px; color: #cfe0ff; }
+  details { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; background: rgba(9,13,26,.4); }
+  details[open] summary { margin-bottom: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 15px; }
+  summary:hover { color: var(--ink); }
+  pre.log { background: #03050c; color: #9fb3ff; border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+    max-height: 280px; overflow: auto; font: 12px/1.55 "JetBrains Mono", monospace; white-space: pre-wrap; }
+  .status { margin-top: 14px; font-weight: 500; display: flex; gap: 10px; align-items: center; }
+  .status:empty { display: none; }
+  .status.run::before { content: ""; width: 14px; height: 14px; border-radius: 50%; flex: none;
+    border: 2px solid rgba(111,143,255,.25); border-top-color: var(--blue-2); animation: spin .8s linear infinite; }
+  .status.bad { color: var(--bad); } .status.ok { color: #a9c1ff; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .waitbox { display: none; margin-top: 14px; padding: 16px; border-radius: 14px; background: var(--soft); border: 1px solid var(--line-strong); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.r { text-align: right; white-space: nowrap; font-family: "JetBrains Mono", monospace; }
+  ul.missing { margin: 0; padding-left: 18px; }
+  @media (max-width: 560px) { section { padding: 18px; } .opt { flex-wrap: wrap; } .opt .price { margin-left: 30px; text-align: left; } }
+  @media (prefers-reduced-motion: reduce) { .track, .progress > i { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Andorinha · Luna · Jev</div>
+    <h1>Compras do Andorinha</h1>
+    <p class="sub">Escreva a lista, deixe o computador procurar, responda as dúvidas e mande para o carrinho. O pagamento você faz no site.</p>
+  </header>
+
+  <section>
+    <h2><span class="num">1</span> Conexões</h2>
+    <div class="grid3">
+      <div class="conn">
+        <b>Andorinha <span class="pill" id="st-andorinha">…</span></b>
+        <p class="hint">Abre o site numa janela. Entre com seu e-mail e senha lá.</p>
+        <button id="btn-andorinha">Entrar no Andorinha</button>
+      </div>
+      <div class="conn">
+        <b>OpenAI <span class="pill" id="st-openai">…</span></b>
+        <p class="hint">Login da conta do ChatGPT para o <span id="model">Luna</span> ajudar.</p>
+        <button id="btn-openai">Entrar na OpenAI</button>
+      </div>
+      <div class="conn">
+        <b>Jev <span class="pill" id="st-jev">…</span></b>
+        <p class="hint">Cole a chave do Jev uma vez. Ela fica guardada neste computador.</p>
+        <div class="row"><input type="password" id="jev-key" placeholder="Chave do Jev" autocomplete="off"><button id="btn-jev">Salvar</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">2</span> Lista de compras</h2>
+    <div class="editor">
+      <div>
+        <textarea id="list" spellcheck="true"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button id="btn-format">Arrumar em lista</button>
+          <span class="saved" id="saved">Salvo</span>
+        </div>
+        <p class="hint">Um item por linha. Quantidade entre parênteses: <code>Leite (12)</code>. Seções com <code>## Nome</code>.</p>
+      </div>
+      <div class="preview" id="preview"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">3</span> Procurar tudo (teste)</h2>
+    <p class="hint">Procura cada item no Andorinha e escolhe sozinho o que dá. Não coloca nada no carrinho.</p>
+    <button class="primary big" id="btn-plan">Procurar tudo</button>
+    <div class="status" id="job-status"></div>
+    <div class="waitbox" id="waitbox">
+      <p id="wait-text" style="margin:0 0 10px"></p>
+      <button class="primary" id="btn-enter">Pronto</button>
+    </div>
+    <details id="log-box"><summary>Ver detalhes técnicos</summary><pre class="log" id="log"></pre></details>
+  </section>
+
+  <section id="doubts-sec">
+    <h2><span class="num">4</span> Dúvidas</h2>
+    <div id="doubts"><p class="hint">Faça a busca primeiro.</p></div>
+    <div class="row" style="margin-top:12px">
+      <button id="btn-save">Salvar respostas</button>
+      <span class="hint" id="answers-saved"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">5</span> Mandar para o carrinho</h2>
+    <p class="hint">Coloca tudo no carrinho e deixa a janela aberta. Confira e finalize a compra no site.</p>
+    <button class="primary big" id="btn-cart">Adicionar ao carrinho</button>
+    <p class="hint" id="cart-hint"></p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (path, body) => {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok && data.error) alert(data.error);
+  return data;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const brl = (n) => n == null ? "" : "R$ " + Number(n).toFixed(2).replace(".", ",");
+
+// ---------- conexões
+async function refreshStatus() {
+  const s = await api("/api/status");
+  for (const k of ["andorinha", "openai", "jev"]) {
+    const el = $("st-" + k);
+    el.textContent = s[k] ? "conectado" : "falta";
+    el.className = "pill" + (s[k] ? " ok" : "");
+  }
+  $("model").textContent = s.model;
+}
+$("btn-andorinha").onclick = () => startJob("/api/andorinha/login");
+$("btn-openai").onclick = () => startJob("/api/openai/login");
+$("btn-jev").onclick = async () => {
+  const key = $("jev-key").value.trim();
+  if (!key) return;
+  const r = await api("/api/jev", {key});
+  if (r.ok) { $("jev-key").value = ""; refreshStatus(); }
+};
+
+// ---------- lista
+let saveTimer;
+function renderPreview(text) {
+  let html = "", open = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("# ")) continue;
+    if (line.startsWith("#")) {
+      if (open) { html += "</ul>"; open = false; }
+      html += `<h3>${esc(line.replace(/^#+\s*/, ""))}</h3>`;
+      continue;
+    }
+    if (!open) { html += "<ul>"; open = true; }
+    html += `<li>${esc(line.replace(/^[-*]\s*(\[[ xX]\]\s*)?/, ""))}</li>`;
+  }
+  if (open) html += "</ul>";
+  $("preview").innerHTML = html || '<p class="hint">A lista aparece aqui.</p>';
+}
+function formatList(text) {
+  const out = [];
+  for (const raw of text.split("\n")) {
+    let line = raw.trim();
+    if (!line) { out.push(""); continue; }
+    if (line.startsWith("#")) { out.push(line); continue; }
+    line = line.replace(/^[-*•]\s*(\[[ xX]\]\s*)?/, "").replace(/^\d+[.)]\s*/, "");
+    line = line.replace(/^(\d+)\s*x?\s+(.+)$/i, "$2 ($1)");  // "12 leite" → "leite (12)"
+    line = line.charAt(0).toUpperCase() + line.slice(1);
+    out.push(`- [ ] ${line}`);
+  }
+  let t = out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  if (!t.startsWith("# ")) t = "# Lista de Compras\n\n" + t;
+  return t;
+}
+function scheduleSave() {
+  $("saved").textContent = "Salvando…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const r = await api("/api/list", {text: $("list").value});
+    $("saved").textContent = r.ok ? "Salvo" : "Não salvou";
+  }, 600);
+}
+$("list").oninput = () => { renderPreview($("list").value); scheduleSave(); };
+$("btn-format").onclick = () => {
+  $("list").value = formatList($("list").value);
+  renderPreview($("list").value); scheduleSave();
+};
+
+// ---------- tarefas
+let since = 0, polling = false, currentJob = null;
+const JOB_NAMES = {plan: "Procurando", cart: "Mandando para o carrinho",
+                   login: "Login no Andorinha", openai: "Login na OpenAI"};
+const WAIT_TEXT = {
+  login: "Entre com sua conta na janela do Andorinha. Quando terminar, clique em Pronto.",
+  cart: "Está tudo no carrinho. Confira e finalize a compra na janela. Quando terminar, clique em Pronto para fechar."};
+async function startJob(path) {
+  const r = await api(path, {});
+  if (r.ok) { since = 0; $("log").textContent = ""; poll(); }
+}
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try {
+    for (;;) {
+      const j = await api("/api/job?since=" + since);
+      since = j.next;
+      if (j.log.length) {
+        $("log").textContent += j.log.join("\n") + "\n";
+        $("log").scrollTop = $("log").scrollHeight;
+      }
+      currentJob = j.running ? j.name : null;
+      for (const b of ["btn-plan", "btn-cart", "btn-andorinha", "btn-openai"]) $(b).disabled = j.running;
+      const st = $("job-status");
+      if (j.running) {
+        const last = (j.log.at(-1) || "").replace(/^\[\w+\]\s*/, "");
+        st.className = "status run";
+        st.textContent = `${JOB_NAMES[j.name] || j.name}… ${last.slice(0, 90)}`;
+      } else if (j.name) {
+        const msg = {ok: "Pronto!", erro: "Deu erro. Veja os detalhes técnicos.",
+                     faltam: "Ainda faltam dúvidas para responder."}[j.result] || "";
+        st.className = "status " + (j.result === "ok" ? "ok" : "bad");
+        st.textContent = `${JOB_NAMES[j.name] || j.name}: ${msg}`;
+      }
+      $("waitbox").style.display = j.waiting_enter ? "block" : "none";
+      $("wait-text").textContent = WAIT_TEXT[j.name] || "Clique em Pronto para continuar.";
+      if (!j.running) {
+        refreshStatus();
+        if (["plan", "cart"].includes(j.name)) loadDoubts();
+        break;
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  } finally { polling = false; }
+}
+$("btn-plan").onclick = async () => {
+  clearTimeout(saveTimer);
+  await api("/api/list", {text: $("list").value});
+  startJob("/api/plan");
+};
+$("btn-cart").onclick = async () => { await saveAnswers(); startJob("/api/cart"); };
+$("btn-enter").onclick = () => api("/api/job/enter", {});
+
+// ---------- dúvidas
+let doubtData = null;
+function doubtCard(d) {
+  const name = "q-" + btoa(unescape(encodeURIComponent(d.raw))).replace(/=/g, "");
+  const ans = d.answer ?? "";
+  const lunaIdx = d.luna && d.luna.index;
+  const isIdx = /^\d+$/.test(ans);
+  const opts = d.candidates.map(c => `
+    <label class="opt"><input type="radio" name="${name}" value="${c.index}" ${String(c.index) === ans ? "checked" : ""}>
+      <span>${esc(c.name)} ${c.index === lunaIdx ? '<span class="luna-tag">sugestão do Luna</span>' : ""}</span>
+      <span class="price"><b>${brl(c.price)}</b>${c.per ? `${brl(c.per)}/${esc(c.base)}` : ""}</span></label>`).join("");
+  const other = !isIdx && ans && ans !== "pular" ? ans : "";
+  return `<div class="doubt ${ans ? "done" : ""}" data-raw="${esc(d.raw)}" data-name="${name}">
+    <h4>${esc(d.raw)}</h4>
+    <p class="why">${esc(d.luna && d.luna.motivo ? "Luna: " + d.luna.motivo : d.notes.join(" "))}</p>
+    ${opts}
+    <label class="opt"><input type="radio" name="${name}" value="__other" ${other ? "checked" : ""}>
+      <span>Outra coisa:</span><input type="text" class="other" value="${esc(other)}" placeholder="ex.: marca Quero, 1 kg"></label>
+    <label class="opt"><input type="radio" name="${name}" value="pular" ${ans === "pular" ? "checked" : ""}><span>Não comprar desta vez</span></label>
+  </div>`;
+}
+async function loadDoubts() {
+  const d = doubtData = await api("/api/doubts");
+  const box = $("doubts");
+  if (!d.has_run) { box.innerHTML = '<p class="hint">Faça a busca primeiro.</p>'; return updateCart(); }
+  let html = "";
+  html += d.pending.length ? `
+    <div class="carousel">
+      <div class="car-head">
+        <span class="counter"><b id="car-cur">1</b> / ${d.pending.length}</span>
+        <div class="progress"><i id="car-prog"></i></div>
+        <span class="counter" id="car-done"></span>
+      </div>
+      <div class="viewport"><div class="track" id="track">${d.pending.map(doubtCard).join("")}</div></div>
+      <div class="car-nav">
+        <button class="arrow" id="car-prev" aria-label="Dúvida anterior">←</button>
+        <div class="dots" id="dots">${d.pending.map((_, i) => `<button aria-label="Dúvida ${i + 1}" data-i="${i}"></button>`).join("")}</div>
+        <button class="arrow primary" id="car-next" aria-label="Próxima dúvida">→</button>
+      </div>
+    </div>` : '<div class="done-all">✓ Nenhuma dúvida para você responder.</div>';
+  if (d.auto.length) html += `<details><summary>O Luna escolheu ${d.auto.length} item(ns) sozinho. Clique para conferir ou mudar.</summary>${d.auto.map(doubtCard).join("")}</details>`;
+  if (d.missing.length) html += `<details><summary>${d.missing.length} item(ns) não foram encontrados e vão ficar de fora</summary><ul>${d.missing.map(m => `<li>${esc(m.raw)} <span class="hint">(busquei “${esc(m.search)}”). Para tentar de novo, mude o nome na lista e procure outra vez.</span></li>`).join("")}</ul></details>`;
+  if (d.decided.length) {
+    const total = d.decided.reduce((s, x) => s + (Number(x.total) || 0), 0);
+    html += `<details><summary>${d.decided.length} item(ns) já escolhidos (estimativa ${brl(total)})</summary><table>${d.decided.map(x => `<tr><td>${esc(x.raw)}</td><td>${esc(x.name)}</td><td class="r">${brl(x.total)}</td></tr>`).join("")}</table></details>`;
+  }
+  box.innerHTML = html;
+  carIdx = 0;
+  if (d.pending.length) {
+    $("car-prev").onclick = () => goTo(carIdx - 1);
+    $("car-next").onclick = () => goTo(nextIndex());
+    $("dots").onclick = (e) => { if (e.target.dataset.i) goTo(+e.target.dataset.i); };
+    goTo(Math.max(0, carCards().findIndex(c => !answerOf(c))));
+  }
+  box.querySelectorAll(".doubt").forEach(card => {
+    card.addEventListener("change", () => { card.classList.toggle("done", !!answerOf(card)); updateCart(); paintCarousel(); });
+    card.querySelector(".other").addEventListener("focus", () => {
+      card.querySelector('input[value="__other"]').checked = true;
+    });
+  });
+  updateCart();
+}
+function answerOf(card) {
+  const sel = card.querySelector(`input[name="${card.dataset.name}"]:checked`);
+  if (!sel) return "";
+  if (sel.value === "__other") return card.querySelector(".other").value.trim();
+  return sel.value;
+}
+let carIdx = 0;
+const carCards = () => [...document.querySelectorAll("#track > .doubt")];
+function nextIndex() {
+  const cards = carCards();
+  for (let k = 1; k <= cards.length; k++) {
+    const i = (carIdx + k) % cards.length;
+    if (!answerOf(cards[i])) return i;
+  }
+  return Math.min(carIdx + 1, cards.length - 1);
+}
+function goTo(i) {
+  const cards = carCards();
+  if (!cards.length) return;
+  carIdx = Math.max(0, Math.min(i, cards.length - 1));
+  $("track").style.transform = `translateX(-${carIdx * 100}%)`;
+  cards.forEach((c, k) => c.inert = k !== carIdx);
+  fitViewport();
+  paintCarousel();
+  const head = document.querySelector(".car-head");
+  if (head && head.getBoundingClientRect().top < 0) head.scrollIntoView({behavior: "smooth", block: "start"});
+}
+function fitViewport() {
+  const card = carCards()[carIdx];
+  if (card) document.querySelector(".viewport").style.height = card.offsetHeight + "px";
+}
+window.addEventListener("resize", fitViewport);
+function paintCarousel() {
+  const cards = carCards();
+  if (!cards.length) return;
+  const done = cards.filter(c => answerOf(c)).length;
+  $("car-cur").textContent = carIdx + 1;
+  $("car-prog").style.width = `${(done / cards.length) * 100}%`;
+  $("car-done").textContent = `${done} respondida(s)`;
+  $("car-prev").disabled = carIdx === 0;
+  const allDone = done === cards.length;
+  $("car-next").disabled = allDone && carIdx === cards.length - 1;
+  [...$("dots").children].forEach((b, k) => {
+    b.classList.toggle("cur", k === carIdx);
+    b.classList.toggle("answered", !!answerOf(cards[k]));
+  });
+}
+document.addEventListener("keydown", (e) => {
+  if (!$("track") || e.target.matches("input, textarea")) return;
+  if (e.key === "ArrowRight") goTo(carIdx + 1);
+  if (e.key === "ArrowLeft") goTo(carIdx - 1);
+});
+function updateCart() {
+  const cards = [...document.querySelectorAll("#doubts .doubt")];
+  const missing = cards.filter(c => !answerOf(c)).length;
+  const ready = doubtData && doubtData.has_run && missing === 0;
+  $("btn-cart").disabled = !ready || !!currentJob;
+  $("cart-hint").textContent = !doubtData || !doubtData.has_run ? "Faça a busca primeiro."
+    : missing ? `Responda ${missing} dúvida(s) antes.` : "";
+}
+async function saveAnswers() {
+  const answers = {};
+  document.querySelectorAll("#doubts .doubt").forEach(c => { answers[c.dataset.raw] = answerOf(c); });
+  const r = await api("/api/answers", {answers});
+  $("answers-saved").textContent = r.ok ? "Respostas salvas." : "";
+}
+$("btn-save").onclick = saveAnswers;
+
+// ---------- início
+(async () => {
+  const l = await api("/api/list");
+  $("list").value = l.text; renderPreview(l.text);
+  refreshStatus(); loadDoubts(); poll();
+})();
+</script>
+</body>
+</html>

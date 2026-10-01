@@ -126,6 +126,12 @@
   .step b { min-width: 30px; text-align: center; font: 600 16px "JetBrains Mono", monospace; }
   .mixtotal { margin: 10px 2px 0; color: var(--muted); } .mixtotal b { color: #fff; }
   .warn { color: #ffb86b; }
+  .fixed { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; font-size: 14px;
+    background: rgba(255, 184, 107, .08); border: 1px solid rgba(255, 184, 107, .3); color: #ffd6a8; }
+  .fixed b { color: #fff; font-weight: 600; }
+  ul.missing li { margin: 6px 0 12px; }
+  .rename { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 6px; }
+  .rename button { padding: 6px 12px; font-size: 14px; }
   .done-all { text-align: center; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 16px; color: #cfe0ff; }
   details { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; background: rgba(9,13,26,.4); }
   details[open] summary { margin-bottom: 8px; }
@@ -389,6 +395,7 @@ function doubtCard(d) {
   return `<div class="doubt ${ans ? "done" : ""} ${isMix ? "mixing" : ""}" data-raw="${esc(d.raw)}" data-name="${name}"
       data-target="${target}" data-last='${esc(JSON.stringify(d.last_mix || {}))}'>
     <h4>${esc(d.raw)}</h4>
+    ${d.was ? `<p class="fixed">O sistema tinha escolhido <b>${esc(d.was)}</b>. O Luna achou que não é o pedido.</p>` : ""}
     <p class="why">${esc(d.luna && d.luna.motivo ? "Luna: " + d.luna.motivo : d.notes.join(" "))}</p>
     ${canMix ? `<div class="modes"><button type="button" class="mode-one">Um produto só</button><button type="button" class="mode-mix">Misturar sabores</button></div>` : ""}
     <div class="mixbox">
@@ -424,12 +431,16 @@ async function loadDoubts() {
       </div>
     </div>` : '<div class="done-all">✓ Nenhuma dúvida para você responder.</div>';
   if (d.auto.length) html += `<details><summary>O Luna escolheu ${d.auto.length} item(ns) sozinho. Clique para conferir ou mudar.</summary>${d.auto.map(doubtCard).join("")}</details>`;
-  if (d.missing.length) html += `<details><summary>${d.missing.length} item(ns) não foram encontrados e vão ficar de fora</summary><ul>${d.missing.map(m => `<li>${esc(m.raw)} <span class="hint">(busquei “${esc(m.search)}”). Para tentar de novo, mude o nome na lista e procure outra vez.</span></li>`).join("")}</ul></details>`;
+  if (d.missing.length) html += `<details><summary>${d.missing.length} item(ns) não foram encontrados e vão ficar de fora</summary><ul class="missing">${d.missing.map(m => `<li>${esc(m.raw)} <span class="hint">(busquei “${esc(m.search)}”)</span>${m.suggest
+      ? `<div class="rename"><span>O Luna acha que é <b>${esc(m.suggest)}</b>${m.why ? ` · <span class="hint">${esc(m.why)}</span>` : ""}</span>
+         <button type="button" data-from="${esc(m.raw)}" data-to="${esc(m.suggest)}">Trocar na lista</button></div>`
+      : `<div class="hint">Mude o nome na lista e procure outra vez.</div>`}</li>`).join("")}</ul></details>`;
   if (d.decided.length) {
     const total = d.decided.reduce((s, x) => s + (Number(x.total) || 0), 0);
     html += `<details><summary>${d.decided.length} item(ns) já escolhidos (estimativa ${brl(total)})</summary><table>${d.decided.map(x => `<tr><td>${esc(x.raw)}</td><td>${esc(x.name)}</td><td class="r">${brl(x.total)}</td></tr>`).join("")}</table></details>`;
   }
   box.innerHTML = html;
+  box.querySelectorAll(".rename button").forEach(b => b.onclick = () => renameInList(b));
   carIdx = 0;
   if (d.pending.length) {
     $("car-prev").onclick = () => goTo(carIdx - 1);
@@ -481,6 +492,15 @@ function refreshCard(card) {
   paintMix(card);
   card.classList.toggle("done", !!answerOf(card));
   updateCart(); paintCarousel(); fitViewport();
+}
+function renameInList(btn) {
+  const from = btn.dataset.from.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  const text = $("list").value;
+  const i = text.toLowerCase().indexOf(from.toLowerCase());
+  if (i < 0) { btn.textContent = "Não achei na lista"; btn.disabled = true; return; }
+  $("list").value = text.slice(0, i) + btn.dataset.to + text.slice(i + from.length);
+  renderPreview($("list").value); scheduleSave();
+  btn.textContent = "Trocado ✓ · procure de novo"; btn.disabled = true;
 }
 function answerOf(card) {
   if (card.classList.contains("mixing")) {

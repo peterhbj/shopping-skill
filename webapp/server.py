@@ -284,7 +284,9 @@ def _doubts() -> dict:
     for it in run.get("items") or []:
         status = it.get("status")
         if status == "not_found":
-            missing.append({"raw": it.get("raw"), "search": it.get("search_term")})
+            missing.append({"raw": it.get("raw"), "search": it.get("search_term"),
+                            "suggest": (it.get("luna") or {}).get("termo"),
+                            "why": (it.get("luna") or {}).get("motivo")})
         elif status in ("decided", "ambiguous_resolved"):
             decided.append({"raw": it.get("raw"), "name": it.get("chosen_name"),
                             "total": it.get("total_cost"), "rule": it.get("rule")})
@@ -301,6 +303,8 @@ def _doubts() -> dict:
                 "luna": it.get("luna"), "answer": a.get("texto"), "by": a.get("por"),
             }
             entry["last_mix"] = _last_mix(it.get("raw"), entry["candidates"])
+            was = next((n for n in entry["notes"] if n.startswith("escolha automática era: ")), None)
+            entry["was"] = was.split(": ", 1)[1] if was else None
             (auto if a.get("por") == "luna" else pend).append(entry)
     return {"has_run": bool(run), "pending": pend, "auto": auto,
             "missing": missing, "decided": decided}

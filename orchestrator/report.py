@@ -233,12 +233,12 @@ def render_report(
                 lines.append(f"  - `{it.raw[:30]}`: " + " · ".join(it.notes))
         lines.append("")
     if amb_auto:
-        lines.append(f"## Ambiguidades auto-resolvidas (sem Grok) ({len(amb_auto)})")
+        lines.append(f"## Ambiguidades auto-resolvidas (sem LLM) ({len(amb_auto)})")
         lines.append("")
         lines.extend(_table(amb_auto))
-        grok_err = [n for it in amb_auto for n in (it.notes or []) if "LLM falhou" in n or "grok CLI" in n]
-        if grok_err:
-            lines.append(f"  - Grok CLI falhou em {len(amb_auto)} item(ns). Primeiro erro: {grok_err[0][:240]}")
+        llm_err = [n for it in amb_auto for n in (it.notes or []) if "LLM falhou" in n or "claude CLI" in n]
+        if llm_err:
+            lines.append(f"  - Claude CLI falhou em {len(amb_auto)} item(ns). Primeiro erro: {llm_err[0][:240]}")
         lines.append("")
     if amb_unres:
         lines.append(f"## ⚠️ Ambíguos sem resolução ({len(amb_unres)})")

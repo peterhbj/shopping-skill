@@ -4,7 +4,7 @@ main.py — Orquestrador end-to-end da Andorinha Shopping Skill (v2.1).
 Mudanças vs v2 original:
 - LLM é OPCIONAL (flag --use-llm). Default = zero chamada de modelo.
 - Quando Ambiguity e LLM desligado: auto-resolve (preferred ou cheapest).
-- --launch-own como default prático para Grok Build / ambientes sem CDP.
+- --launch-own como default prático para ambientes sem CDP.
 
 CLI:
     python3 -m orchestrator.main \\
@@ -42,7 +42,6 @@ from .enricher import (
     normalize,
 )
 from .llm.adapter import (
-    GrokCLIAdapter,
     make_adapter,
     LLMAdapter,
     LLMCallError,
@@ -1168,9 +1167,9 @@ def main() -> int:
     p.add_argument("--cdp", action="store_true",
                    help="Usa Chrome existente via CDP (desliga launch-own)")
     p.add_argument("--use-llm", action="store_true", default=True,
-                   help="Usa grok -p nas ambiguidades (default ligado)")
+                   help="Usa claude -p nas ambiguidades (default ligado)")
     p.add_argument("--no-llm", action="store_true",
-                   help="Não chama grok -p; auto-resolve marca preferida")
+                   help="Não chama claude -p; auto-resolve marca preferida")
     p.add_argument("--keep-open", action="store_true", default=True,
                    help="Mantém o browser aberto no final para você fechar a compra")
     p.add_argument("--no-keep-open", action="store_true",

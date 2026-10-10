@@ -57,7 +57,7 @@ def _parse_json_tolerant(raw: str) -> dict:
 
 
 class GrokCLIAdapter(LLMAdapter):
-    """Headless Grok Build: `grok -p` (substitui o claude -p)."""
+    """Headless Grok Build: `grok -p` (legado; o padrão é o claude -p)."""
 
     _DISALLOWED = (
         "run_terminal_cmd,web_search,web_fetch,search_replace,"
@@ -191,16 +191,16 @@ def _env_without_secrets() -> dict:
 
 
 def make_adapter(raw_cfg: dict | None = None) -> LLMAdapter:
-    """Escolhe o adapter: env SHOP_LLM_PROVIDER/SHOP_LLM_MODEL > perfil > grok."""
+    """Escolhe o adapter: env SHOP_LLM_PROVIDER/SHOP_LLM_MODEL > perfil > claude."""
     raw_cfg = raw_cfg or {}
-    provider = (os.getenv("SHOP_LLM_PROVIDER") or raw_cfg.get("llm_provider") or "grok").lower()
+    provider = (os.getenv("SHOP_LLM_PROVIDER") or raw_cfg.get("llm_provider") or "claude").lower()
     model = os.getenv("SHOP_LLM_MODEL") or raw_cfg.get("llm_model")
     timeout = int(raw_cfg.get("llm_timeout_s", 120))
     if provider == "codex":
         return CodexCLIAdapter(model=model or "gpt-6-luna", timeout_s=max(timeout, 300))
-    if provider == "claude":
-        return ClaudeCodeCLIAdapter(model=model or "claude-haiku-5-5", timeout_s=max(timeout, 300))
-    return GrokCLIAdapter(model=model or "grok-4.6", timeout_s=timeout)
+    if provider == "grok":
+        return GrokCLIAdapter(model=model or "grok-4.6", timeout_s=timeout)
+    return ClaudeCodeCLIAdapter(model=model or "claude-haiku-5-5", timeout_s=timeout)
 
 
 class ClaudeCodeCLIAdapter(LLMAdapter):

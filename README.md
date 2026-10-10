@@ -3,8 +3,8 @@
 Lista de compras → carrinho no [andorinhaonline.com.br](https://www.andorinhaonline.com.br). **Checkout é sempre manual.**
 
 O site usa o Claude Haiku 5.5 (`claude-haiku-5-5`), pelo Claude Code CLI, para
-revisar as dúvidas. O modo CLI legado pode usar `grok -p` para ambiguidades. A
-skill do Codex (opcional) usa `--no-llm` e revisa o plano na própria sessão.
+revisar as dúvidas. O modo CLI usa `claude -p` nas ambiguidades, e a skill do
+Claude Code usa `--no-llm` e revisa o plano na própria sessão.
 
 ## Setup
 
@@ -32,8 +32,6 @@ curl -fsSL https://claude.ai/install.sh | bash   # ou, no Arch: yay -S claude-co
 claude auth login
 ```
 
-O Grok Build CLI só é necessário para o fluxo legado com LLM interno, e o
-Codex CLI só para a skill do Codex.
 
 ## Uso
 
@@ -64,27 +62,20 @@ a porta com `SHOP_PORT`. O login do Claude usa os limites da sua assinatura.
 O Claude lê nomes de produtos vindos do site, então roda isolado: uma chamada
 `claude -p` por revisão, sem ferramentas e sem os conectores MCP da sua conta.
 
-No CLI (`python -m orchestrator.main`), o mesmo modelo entra com
-`SHOP_LLM_PROVIDER=claude`; sem isso o padrão continua sendo o `grok -p`.
+O CLI (`python -m orchestrator.main`) usa o mesmo modelo por padrão; ele vem
+de `config.llm_model` no `preferencias.yaml`.
 
-### Pelo Codex CLI, usando a assinatura do ChatGPT (opcional)
+### Pelo Claude Code
 
-Este fluxo é separado do site e não é mais necessário para ele.
+Abra este repositório no Claude Code e peça, por exemplo: `/andorinha-shopping
+analise minha lista e prepare o plano`. A skill do projeto está em
+`.claude/skills/andorinha-shopping`. O Claude conduz a corrida e revisa o
+plano; o Python faz as buscas e os cliques, e o Jev pode propor decisões em
+lote. A skill começa em modo `--jev-shadow` e não adiciona itens ao carrinho
+sem um pedido explícito.
 
-Com o Codex CLI instalado e autenticado com sua conta do ChatGPT, abra este
-repositório no terminal e peça: `$andorinha-shopping analise minha lista e
-prepare o plano`. A skill do projeto está em `.agents/skills/andorinha-shopping`.
-O Codex conduz uma corrida e revisa o plano; o Python faz as buscas e os
-cliques, e o Jev pode propor decisões em lote. A skill começa em modo
-`--jev-shadow` e não adiciona itens ao carrinho sem um pedido explícito.
-
-O login do Codex usa os limites da sua assinatura, sem chave da API OpenAI.
-Jev continua sendo um serviço à parte e requer `TYPESAFE_API_KEY` para ser
-usado; sem ela, a skill roda o fluxo local. Se o Codex CLI estiver autenticado
-por chave de API em vez do login do ChatGPT, suas chamadas seguem a cobrança
-da API. Confira a autenticação antes de rodar. Esta skill roda no computador
-onde o Codex CLI e o navegador Playwright estão instalados; o Work no site não
-acessa automaticamente o navegador ou o login do Codex do seu computador.
+Jev é um serviço à parte e requer `TYPESAFE_API_KEY`; sem ela, a skill roda o
+fluxo local.
 
 ### Jev experimental (planejador em lote)
 
@@ -117,7 +108,7 @@ escolher manualmente o índice de um candidato, `run.json` guarda
 `jev_user_comparison` para comparar a sugestão com sua escolha.
 
 ```bash
-# Tudo: busca + grok nas dúvidas + adiciona (janela fica aberta)
+# Tudo: busca + claude nas dúvidas + adiciona (janela fica aberta)
 python -m orchestrator.main run --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
 
 # Só buscar (grava run.json, não clica)
@@ -126,7 +117,7 @@ python -m orchestrator.main plan --list lista-compras.md --profile preferencias.
 # Só clicar o que já está decidido em run.json
 python -m orchestrator.main apply --list lista-compras.md --profile preferencias.yaml --report-out relatorio.md
 
-# Sem grok -p (auto marca preferida)
+# Sem claude -p (auto marca preferida)
 python -m orchestrator.main run --list lista-compras.md --profile preferencias.yaml --no-llm
 
 # Login no Chromium do Playwright (não é o Chrome normal)
@@ -151,7 +142,7 @@ Se o carrinho da corrida anterior ainda tiver item, esvazie antes de um teste. `
 
 1. **Enricher** — lista + seção (`## Hortifruti`) + `preferencias.yaml`
 2. **plan** — busca Sense (categoria + `saleUnit`) + regras (família, palavra, lactose, marca)
-3. **grok -p** — só se a preferida tiver alternativa ≥15% mais barata/unidade
+3. **claude -p** — só se a preferida tiver alternativa ≥15% mais barata/unidade
 4. **apply** — clica `+` e espera ack: card com botão `−` + qty estável (não o número otimista)
 5. **Relatório** — markdown. Drawer vazio = carrinho não lido, não “deu certo”.
 
@@ -166,5 +157,5 @@ shopping-skill/
 ├── scripts/               # instalar-omarchy.sh, abrir-compras.sh, browser_helpers.js
 ├── preferencias.yaml
 ├── lista-compras.md
-└── .grok/skills/andorinha-skill/
+└── .claude/skills/andorinha-shopping/
 ```

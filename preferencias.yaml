@@ -243,7 +243,7 @@ quantidades:
   uva: 2
 
 config:
-  llm_model: grok-4.6
+  llm_model: claude-haiku-5-5
   llm_timeout_s: 120
   dominance_threshold_pct: 15
   browser:

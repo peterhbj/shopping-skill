@@ -1,5 +1,5 @@
 """
-luna.py — passe em lote do GPT-6 Luna (via Codex CLI) sobre o run.json.
+luna.py — passe em lote do Claude Haiku 5.5 (via Claude Code CLI) sobre o run.json.
 
 Uma chamada de modelo por corrida, não por item, com três tarefas:
 - dúvidas: escolher entre os candidatos das que ficaram para a pessoa;

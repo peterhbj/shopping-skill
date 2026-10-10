@@ -198,13 +198,15 @@ def make_adapter(raw_cfg: dict | None = None) -> LLMAdapter:
     timeout = int(raw_cfg.get("llm_timeout_s", 120))
     if provider == "codex":
         return CodexCLIAdapter(model=model or "gpt-6-luna", timeout_s=max(timeout, 300))
+    if provider == "claude":
+        return ClaudeCodeCLIAdapter(model=model or "claude-haiku-5-5", timeout_s=max(timeout, 300))
     return GrokCLIAdapter(model=model or "grok-4.6", timeout_s=timeout)
 
 
 class ClaudeCodeCLIAdapter(LLMAdapter):
     def __init__(
         self,
-        model: str = "haiku",
+        model: str = "claude-haiku-5-5",
         timeout_s: int = 120,
         extra_args: Optional[list[str]] = None,
         use_shell: bool = False,

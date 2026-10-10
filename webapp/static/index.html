@@ -177,9 +177,9 @@
         </div>
       </div>
       <div class="conn">
-        <b>OpenAI <span class="pill" id="st-openai">…</span></b>
-        <p class="hint">Login da conta do ChatGPT para o <span id="model">Luna</span> ajudar.</p>
-        <button id="btn-openai">Entrar na OpenAI</button>
+        <b>Claude <span class="pill" id="st-claude">…</span></b>
+        <p class="hint">Login da conta do Claude para o <span id="model">Luna</span> ajudar.</p>
+        <button id="btn-claude">Entrar no Claude</button>
       </div>
       <div class="conn">
         <b>Jev <span class="pill" id="st-jev">…</span></b>
@@ -250,7 +250,7 @@ const brl = (n) => n == null ? "" : "R$ " + Number(n).toFixed(2).replace(".", ",
 // ---------- conexões
 async function refreshStatus() {
   const s = await api("/api/status");
-  for (const k of ["andorinha", "openai", "jev"]) {
+  for (const k of ["andorinha", "claude", "jev"]) {
     const el = $("st-" + k);
     el.textContent = s[k] ? "conectado" : "falta";
     el.className = "pill" + (s[k] ? " ok" : "");
@@ -258,7 +258,7 @@ async function refreshStatus() {
   $("model").textContent = s.model;
 }
 $("btn-andorinha").onclick = () => startJob("/api/andorinha/login");
-$("btn-openai").onclick = () => startJob("/api/openai/login");
+$("btn-claude").onclick = () => startJob("/api/claude/login");
 $("btn-jev").onclick = async () => {
   const key = $("jev-key").value.trim();
   if (!key) return;
@@ -324,7 +324,7 @@ $("btn-format").onclick = () => {
 // ---------- tarefas
 let since = 0, polling = false, currentJob = null;
 const JOB_NAMES = {plan: "Procurando", cart: "Mandando para o carrinho",
-                   login: "Login no Andorinha", openai: "Login na OpenAI"};
+                   login: "Login no Andorinha", claude: "Login no Claude"};
 const WAIT_TEXT = {
   cart: "Está tudo no carrinho. Confira e finalize a compra na janela. Quando terminar, clique em Pronto para fechar."};
 async function startJob(path) {
@@ -343,7 +343,7 @@ async function poll() {
         $("log").scrollTop = $("log").scrollHeight;
       }
       currentJob = j.running ? j.name : null;
-      for (const b of ["btn-plan", "btn-cart", "btn-andorinha", "btn-openai"]) $(b).disabled = j.running;
+      for (const b of ["btn-plan", "btn-cart", "btn-andorinha", "btn-claude"]) $(b).disabled = j.running;
       const st = $("job-status");
       if (j.running) {
         const last = (j.log.at(-1) || "").replace(/^\[\w+\]\s*/, "");

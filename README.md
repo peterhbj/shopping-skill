@@ -20,8 +20,9 @@ use o atalho ou `scripts/abrir-compras.sh`.
 
 ### Manual
 
-O Codex CLI é dependência do projeto: o site usa o `codex login` (OAuth da
-conta do ChatGPT de quem usa) para chamar o GPT-6 Luna.
+O Claude Code CLI é dependência do site: ele usa o `claude auth login` (conta
+do Claude de quem usa, sem chave de API) para chamar o Claude Haiku 5.5
+(`claude-haiku-5-5`).
 
 ```bash
 pip install -r requirements.txt
@@ -41,11 +42,11 @@ python -m webapp.server
 Abre `http://127.0.0.1:8765`, que roda só neste computador. Na página:
 
 1. **Conexões**: entrar no Andorinha (a senha é digitada na janela do site e o
-   login fica salvo em `.andorinha-profile/`), entrar na OpenAI (usa o `codex
-   login` com a conta do ChatGPT) e colar a chave do Jev (guardada no `.env`).
+   login fica salvo em `.andorinha-profile/`), entrar no Claude (usa o `claude
+   auth login` com a conta do Claude) e colar a chave do Jev (guardada no `.env`).
 2. **Lista**: editor de `lista-compras.md` com prévia ao vivo e o botão
    "Arrumar em lista".
-3. **Procurar tudo**: roda `plan` (regras + Jev) e depois o GPT-6 Luna revisa
+3. **Procurar tudo**: roda `plan` (regras + Jev) e depois o Claude Haiku 5.5 revisa
    todas as dúvidas numa única chamada. Só decide sozinho com confiança ≥ 0.85.
    Nada vai para o carrinho.
 4. **Dúvidas**: carrossel com o que sobrou para responder. As respostas ficam

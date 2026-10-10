@@ -3,7 +3,7 @@ server.py — site local das compras do Andorinha.
 
     python -m webapp.server        # abre http://127.0.0.1:8765
 
-Roda só na máquina (127.0.0.1): o navegador do Andorinha, o Codex CLI e as
+Roda só na máquina (127.0.0.1): o navegador do Andorinha, o Claude Code CLI e as
 chaves ficam neste computador. Checkout e pagamento continuam manuais.
 """
 
@@ -25,7 +25,7 @@ import re
 import yaml
 
 from orchestrator.enricher import extract_qty_from_raw, normalize, parse_list_file
-from orchestrator.llm.adapter import CodexCLIAdapter
+from orchestrator.llm.adapter import ClaudeCodeCLIAdapter
 
 from . import luna
 
@@ -41,7 +41,7 @@ ANSWERS_YAML = ROOT / "respostas.yaml"
 STATE = ROOT / ".site-state.json"
 MIX_HISTORY = ROOT / "historico-sabores.json"
 BROWSER_PROFILE = ROOT / ".andorinha-profile"
-MODEL = os.getenv("SHOP_LLM_MODEL", "gpt-6-luna")
+MODEL = os.getenv("SHOP_LLM_MODEL", "claude-haiku-5-5")
 HOST, PORT = "127.0.0.1", int(os.getenv("SHOP_PORT", "8765"))
 
 
@@ -85,7 +85,7 @@ def _child_env() -> dict:
     env.update({
         "PYTHONUNBUFFERED": "1",
         "ANDORINHA_PROFILE_DIR": str(BROWSER_PROFILE),
-        "SHOP_LLM_PROVIDER": "codex",
+        "SHOP_LLM_PROVIDER": "claude",
         "SHOP_LLM_MODEL": MODEL,
     })
     key = _jev_key()
@@ -105,14 +105,14 @@ def _list_hash() -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def _codex_logged_in() -> bool:
-    if not shutil.which("codex"):
+def _claude_logged_in() -> bool:
+    if not shutil.which("claude"):
         return False
     try:
-        r = subprocess.run(["codex", "login", "status"], capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.TimeoutExpired):
+        r = subprocess.run(["claude", "auth", "status"], capture_output=True, text=True, timeout=15)
+        return r.returncode == 0 and bool(json.loads(r.stdout).get("loggedIn"))
+    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
         return False
-    return r.returncode == 0 and "logged in" in (r.stdout + r.stderr).lower()
 
 
 # ---------------------------------------------------------------- tarefas
@@ -219,9 +219,9 @@ def _job_login() -> str:
     return "ok" if rc == 0 else "erro"
 
 
-def _job_openai_login() -> str:
-    JOB.say("[site] Abrindo o login da OpenAI no navegador…")
-    rc = JOB.run(["codex", "login"], timeout_s=600)
+def _job_claude_login() -> str:
+    JOB.say("[site] Abrindo o login do Claude no navegador…")
+    rc = JOB.run(["claude", "auth", "login"], timeout_s=600)
     return "ok" if rc == 0 else "erro"
 
 
@@ -234,12 +234,12 @@ def _job_plan() -> str:
     if rc != 0:
         return "erro"
     answers: dict = {}
-    if _codex_logged_in():
-        adapter = CodexCLIAdapter(model=MODEL)
+    if _claude_logged_in():
+        adapter = ClaudeCodeCLIAdapter(model=MODEL, timeout_s=300)
         for raw, idx in luna.run_luna(RUN, PROFILE, adapter, log=JOB.say).items():
             answers[raw] = {"texto": idx, "por": "luna"}
     else:
-        JOB.say("[site] Sem login da OpenAI: o Luna não revisou as dúvidas.")
+        JOB.say("[site] Sem login do Claude: o Luna não revisou as dúvidas.")
     _write_json(ANSWERS, answers)
     _set_state(plan_list_hash=list_hash)
     return "ok"
@@ -391,7 +391,7 @@ class Handler(BaseHTTPRequestHandler):
             state = _read_json(STATE, {})
             return self._send(200, {
                 "andorinha": bool(state.get("andorinha_login")),
-                "openai": _codex_logged_in(),
+                "claude": _claude_logged_in(),
                 "jev": bool(_jev_key()),
                 "model": MODEL,
             })
@@ -411,13 +411,13 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         jobs = {
             "/api/andorinha/login": ("login", _job_login),
-            "/api/openai/login": ("openai", _job_openai_login),
+            "/api/claude/login": ("claude", _job_claude_login),
             "/api/plan": ("plan", _job_plan),
             "/api/cart": ("cart", _job_cart),
         }
         if self.path in jobs:
-            if self.path == "/api/openai/login" and not shutil.which("codex"):
-                return self._send(400, {"error": "Codex CLI não instalado"})
+            if self.path == "/api/claude/login" and not shutil.which("claude"):
+                return self._send(400, {"error": "Claude Code CLI não instalado"})
             ok = JOB.start(*jobs[self.path])
             return self._send(200 if ok else 409,
                               {"ok": ok, "error": None if ok else "já tem uma tarefa rodando"})

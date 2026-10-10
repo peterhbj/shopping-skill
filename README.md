@@ -13,7 +13,7 @@ O modo CLI legado pode usar `grok -p` para ambiguidades. A skill do Codex usa
 curl -fsSL https://raw.githubusercontent.com/peterhbj/shopping-skill/main/scripts/instalar-omarchy.sh | bash
 ```
 
-Instala git, Python e o Codex CLI (`openai-codex`) se faltarem, baixa o projeto
+Instala git, Python e o Claude Code CLI se faltarem, baixa o projeto
 em `~/shopping-skill`, prepara o `.venv` e o Chromium do Playwright, cria o
 atalho “Compras Andorinha” no menu de apps e abre o site. Para abrir de novo,
 use o atalho ou `scripts/abrir-compras.sh`.

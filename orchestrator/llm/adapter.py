@@ -238,6 +238,9 @@ class ClaudeCodeCLIAdapter(LLMAdapter):
                 "-p", prompt,
                 "--model", self.model,
                 "--output-format", "text",
+                # Sem ferramentas nem conectores MCP da conta: o modelo lê texto vindo do site.
+                "--tools", "",
+                "--strict-mcp-config",
                 "--disallowedTools", "*",
             ] + self.extra_args
 
@@ -252,7 +255,7 @@ class ClaudeCodeCLIAdapter(LLMAdapter):
                 else:
                     result = subprocess.run(
                         base_args,
-                        capture_output=True, text=True,
+                        capture_output=True, text=True, stdin=subprocess.DEVNULL,
                         timeout=self.timeout, cwd=tmp, env=env,
                     )
             except subprocess.TimeoutExpired as e:

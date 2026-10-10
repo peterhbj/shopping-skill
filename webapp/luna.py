@@ -170,7 +170,7 @@ def apply_decisions(run: dict, reply: dict, min_confidence: float = MIN_CONFIDEN
         motivo = str(d.get("motivo") or "")[:200]
         item["luna"] = {"index": idx, "confianca": conf, "motivo": motivo, "conferencia": True}
         item["notes"] = list(item.get("notes") or []) + [
-            f"escolha automática era: {item.get('chosen_name')}", f"Luna: {motivo}",
+            f"escolha automática era: {item.get('chosen_name')}", f"Claude: {motivo}",
         ]
         item.update({"status": "needs_user", "chosen_index": None, "chosen_name": None,
                      "packs_needed": 0, "total_cost": 0, "rule": None})
@@ -191,19 +191,19 @@ def run_luna(run_path: Path, profile_path: Path, adapter: LLMAdapter, log=print)
     run = json.loads(run_path.read_text(encoding="utf-8"))
     pend, auto, missing = pending_items(run), auto_decided_items(run), missing_items(run)
     if not (pend or auto or missing):
-        log("[luna] nada para revisar")
+        log("[claude] nada para revisar")
         return {}
-    log(f"[luna] revisando {len(pend)} dúvida(s), conferindo {len(auto)} escolha(s) "
+    log(f"[claude] revisando {len(pend)} dúvida(s), conferindo {len(auto)} escolha(s) "
         f"automática(s) e {len(missing)} item(ns) não encontrado(s)…")
     try:
         reply = adapter.ask_json(build_prompt(run, profile_path.read_text(encoding="utf-8")))
     except LLMCallError as e:
-        log(f"[luna] falhou, as dúvidas vão para você: {e}")
+        log(f"[claude] falhou, as dúvidas vão para você: {e}")
         return {}
     confident = apply_decisions(run, reply)
     run_path.write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
     flagged = sum(1 for it in run["items"] if (it.get("luna") or {}).get("conferencia"))
     renamed = sum(1 for it in run["items"] if (it.get("luna") or {}).get("termo"))
-    log(f"[luna] {len(confident)} escolha(s) com confiança; {flagged} escolha(s) automática(s) "
+    log(f"[claude] {len(confident)} escolha(s) com confiança; {flagged} escolha(s) automática(s) "
         f"corrigida(s); {renamed} nome(s) sugerido(s) para busca")
     return confident

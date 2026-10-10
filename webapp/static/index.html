@@ -159,7 +159,7 @@
 <body>
 <main>
   <header>
-    <div class="eyebrow">Andorinha · Luna · Jev</div>
+    <div class="eyebrow">Andorinha · Claude · Jev</div>
     <h1>Compras do Andorinha</h1>
     <p class="sub">Escreva a lista, deixe o computador procurar, responda as dúvidas e mande para o carrinho. O pagamento você faz no site.</p>
   </header>
@@ -178,7 +178,7 @@
       </div>
       <div class="conn">
         <b>Claude <span class="pill" id="st-claude">…</span></b>
-        <p class="hint">Login da conta do Claude para o <span id="model">Luna</span> ajudar.</p>
+        <p class="hint">Login da conta do Claude para o <span id="model">Claude</span> ajudar.</p>
         <button id="btn-claude">Entrar no Claude</button>
       </div>
       <div class="conn">
@@ -391,7 +391,7 @@ function doubtCard(d) {
   const isIdx = /^\d+$/.test(ans);
   const opts = d.candidates.map(c => `
     <label class="opt"><input type="radio" name="${name}" value="${c.index}" ${String(c.index) === ans ? "checked" : ""}>
-      <span>${esc(c.name)} ${c.index === lunaIdx ? '<span class="luna-tag">sugestão do Luna</span>' : ""}</span>
+      <span>${esc(c.name)} ${c.index === lunaIdx ? '<span class="luna-tag">sugestão do Claude</span>' : ""}</span>
       <span class="price"><b>${brl(c.price)}</b>${c.per ? `${brl(c.per)}/${esc(c.base)}` : ""}</span></label>`).join("");
   const isMix = ans.startsWith("mix:");
   const other = !isIdx && !isMix && ans && ans !== "pular" ? ans : "";
@@ -409,8 +409,8 @@ function doubtCard(d) {
       data-target="${target}" data-last='${esc(JSON.stringify(d.last_mix || {}))}'>
     <h4>${esc(d.raw)}</h4>
     ${d.failed ? `<p class="fixed">Não achei nada com “<b>${esc(d.failed)}</b>”. Escolha uma opção ou tente outro nome.</p>` : ""}
-    ${d.was ? `<p class="fixed">O sistema tinha escolhido <b>${esc(d.was)}</b>. O Luna achou que não é o pedido.</p>` : ""}
-    <p class="why">${esc(d.luna && d.luna.motivo ? "Luna: " + d.luna.motivo : d.notes.join(" "))}</p>
+    ${d.was ? `<p class="fixed">O sistema tinha escolhido <b>${esc(d.was)}</b>. O Claude achou que não é o pedido.</p>` : ""}
+    <p class="why">${esc(d.luna && d.luna.motivo ? "Claude: " + d.luna.motivo : d.notes.join(" "))}</p>
     ${canMix ? `<div class="modes"><button type="button" class="mode-one">Um produto só</button><button type="button" class="mode-mix">Misturar sabores</button></div>` : ""}
     <div class="mixbox">
       <p class="mixhint"></p>
@@ -445,9 +445,9 @@ async function loadDoubts() {
         <button class="arrow primary" id="car-next" aria-label="Próxima dúvida">→</button>
       </div>
     </div>` : '<div class="done-all">✓ Nenhuma dúvida para você responder.</div>';
-  if (d.auto.length) html += `<details><summary>O Luna escolheu ${d.auto.length} item(ns) sozinho. Clique para conferir ou mudar.</summary>${d.auto.map(doubtCard).join("")}</details>`;
+  if (d.auto.length) html += `<details><summary>O Claude escolheu ${d.auto.length} item(ns) sozinho. Clique para conferir ou mudar.</summary>${d.auto.map(doubtCard).join("")}</details>`;
   if (d.missing.length) html += `<details><summary>${d.missing.length} item(ns) não foram encontrados e vão ficar de fora</summary><ul class="missing">${d.missing.map(m => `<li>${esc(m.raw)} <span class="hint">(busquei “${esc(m.search)}”)</span>${m.suggest
-      ? `<div class="rename"><span>O Luna acha que é <b>${esc(m.suggest)}</b>${m.why ? ` · <span class="hint">${esc(m.why)}</span>` : ""}</span>
+      ? `<div class="rename"><span>O Claude acha que é <b>${esc(m.suggest)}</b>${m.why ? ` · <span class="hint">${esc(m.why)}</span>` : ""}</span>
          <button type="button" data-from="${esc(m.raw)}" data-to="${esc(m.suggest)}">Trocar na lista</button></div>`
       : `<div class="hint">Mude o nome na lista e procure outra vez.</div>`}</li>`).join("")}</ul></details>`;
   if (d.decided.length) {

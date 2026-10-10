@@ -105,11 +105,16 @@ def _list_hash() -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _claude_bin() -> str | None:
+    return shutil.which(ClaudeCodeCLIAdapter._resolve_claude_bin())
+
+
 def _claude_logged_in() -> bool:
-    if not shutil.which("claude"):
+    claude = _claude_bin()
+    if not claude:
         return False
     try:
-        r = subprocess.run(["claude", "auth", "status"], capture_output=True, text=True, timeout=15)
+        r = subprocess.run([claude, "auth", "status"], capture_output=True, text=True, timeout=15)
         return r.returncode == 0 and bool(json.loads(r.stdout).get("loggedIn"))
     except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
         return False
@@ -221,7 +226,7 @@ def _job_login() -> str:
 
 def _job_claude_login() -> str:
     JOB.say("[site] Abrindo o login do Claude no navegador…")
-    rc = JOB.run(["claude", "auth", "login"], timeout_s=600)
+    rc = JOB.run([_claude_bin() or "claude", "auth", "login"], timeout_s=600)
     return "ok" if rc == 0 else "erro"
 
 
@@ -239,7 +244,7 @@ def _job_plan() -> str:
         for raw, idx in luna.run_luna(RUN, PROFILE, adapter, log=JOB.say).items():
             answers[raw] = {"texto": idx, "por": "luna"}
     else:
-        JOB.say("[site] Sem login do Claude: o Luna não revisou as dúvidas.")
+        JOB.say("[site] Sem login do Claude: ele não revisou as dúvidas.")
     _write_json(ANSWERS, answers)
     _set_state(plan_list_hash=list_hash)
     return "ok"
@@ -416,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/cart": ("cart", _job_cart),
         }
         if self.path in jobs:
-            if self.path == "/api/claude/login" and not shutil.which("claude"):
+            if self.path == "/api/claude/login" and not _claude_bin():
                 return self._send(400, {"error": "Claude Code CLI não instalado"})
             ok = JOB.start(*jobs[self.path])
             return self._send(200 if ok else 409,

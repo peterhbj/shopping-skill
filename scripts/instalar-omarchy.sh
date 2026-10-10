@@ -12,11 +12,19 @@ say "Instalando dependências do sistema (pode pedir sua senha)"
 pkgs=()
 command -v git >/dev/null || pkgs+=(git)
 command -v python3 >/dev/null || pkgs+=(python)
-command -v codex >/dev/null || pkgs+=(openai-codex)
 if ((${#pkgs[@]})); then
   sudo pacman -S --needed --noconfirm "${pkgs[@]}"
 else
-  echo "git, python e codex já instalados."
+  echo "git e python já instalados."
+fi
+
+if ! command -v claude >/dev/null && [[ ! -x "$HOME/.local/bin/claude" ]]; then
+  say "Instalando o Claude Code CLI"
+  if command -v yay >/dev/null; then
+    yay -S --needed --noconfirm claude-code
+  else
+    curl -fsSL https://claude.ai/install.sh | bash
+  fi
 fi
 
 if [[ -d "$DEST/.git" ]]; then

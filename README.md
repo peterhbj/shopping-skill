@@ -2,8 +2,9 @@
 
 Lista de compras → carrinho no [andorinhaonline.com.br](https://www.andorinhaonline.com.br). **Checkout é sempre manual.**
 
-O modo CLI legado pode usar `grok -p` para ambiguidades. A skill do Codex usa
-`--no-llm` e revisa o plano na própria sessão.
+O site usa o Claude Haiku 5.5 (`claude-haiku-5-5`), pelo Claude Code CLI, para
+revisar as dúvidas. O modo CLI legado pode usar `grok -p` para ambiguidades. A
+skill do Codex (opcional) usa `--no-llm` e revisa o plano na própria sessão.
 
 ## Setup
 
@@ -27,9 +28,12 @@ do Claude de quem usa, sem chave de API) para chamar o Claude Haiku 5.5
 ```bash
 pip install -r requirements.txt
 playwright install chromium
+curl -fsSL https://claude.ai/install.sh | bash   # ou, no Arch: yay -S claude-code
+claude auth login
 ```
 
-O Grok Build CLI só é necessário para o fluxo legado com LLM interno.
+O Grok Build CLI só é necessário para o fluxo legado com LLM interno, e o
+Codex CLI só para a skill do Codex.
 
 ## Uso
 
@@ -54,9 +58,18 @@ Abre `http://127.0.0.1:8765`, que roda só neste computador. Na página:
 5. **Adicionar ao carrinho**: roda `resolve` com as respostas e depois `apply`,
    deixando a janela aberta para finalizar a compra.
 
-O modelo pode ser trocado com `SHOP_LLM_MODEL`, e a porta com `SHOP_PORT`.
+O modelo pode ser trocado com `SHOP_LLM_MODEL` (padrão `claude-haiku-5-5`), e
+a porta com `SHOP_PORT`. O login do Claude usa os limites da sua assinatura.
 
-### Pelo Codex CLI, usando a assinatura do ChatGPT
+O Claude lê nomes de produtos vindos do site, então roda isolado: uma chamada
+`claude -p` por revisão, sem ferramentas e sem os conectores MCP da sua conta.
+
+No CLI (`python -m orchestrator.main`), o mesmo modelo entra com
+`SHOP_LLM_PROVIDER=claude`; sem isso o padrão continua sendo o `grok -p`.
+
+### Pelo Codex CLI, usando a assinatura do ChatGPT (opcional)
+
+Este fluxo é separado do site e não é mais necessário para ele.
 
 Com o Codex CLI instalado e autenticado com sua conta do ChatGPT, abra este
 repositório no terminal e peça: `$andorinha-shopping analise minha lista e
@@ -149,7 +162,8 @@ Itens em kg: em geral 1 clique; o peso você ajusta no site.
 ```
 shopping-skill/
 ├── orchestrator/          # main, browser, enricher, selector, report, llm/
-├── scripts/browser_helpers.js
+├── webapp/                # site local: server.py, luna.py (revisão pelo Claude), static/
+├── scripts/               # instalar-omarchy.sh, abrir-compras.sh, browser_helpers.js
 ├── preferencias.yaml
 ├── lista-compras.md
 └── .grok/skills/andorinha-skill/

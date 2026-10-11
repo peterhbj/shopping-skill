@@ -71,11 +71,11 @@ if __name__ == "__main__":
 
 
 class ClaudeAdapterTest(unittest.TestCase):
-    def test_provider_claude_usa_haiku_5_5(self):
+    def test_padrao_usa_haiku_5_5(self):
         import os
         from unittest import mock
         from orchestrator.llm.adapter import ClaudeCodeCLIAdapter, make_adapter
-        with mock.patch.dict(os.environ, {"SHOP_LLM_PROVIDER": "claude"}, clear=False):
+        with mock.patch.dict(os.environ, clear=False):
             os.environ.pop("SHOP_LLM_MODEL", None)
             adapter = make_adapter({})
         self.assertIsInstance(adapter, ClaudeCodeCLIAdapter)

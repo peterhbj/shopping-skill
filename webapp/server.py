@@ -85,7 +85,6 @@ def _child_env() -> dict:
     env.update({
         "PYTHONUNBUFFERED": "1",
         "ANDORINHA_PROFILE_DIR": str(BROWSER_PROFILE),
-        "SHOP_LLM_PROVIDER": "claude",
         "SHOP_LLM_MODEL": MODEL,
     })
     key = _jev_key()

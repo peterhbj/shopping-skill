@@ -461,7 +461,7 @@ def _resolve_answered(
         except Exception:
             results = []
         planned["search_term"] = search
-        planned_list[n - 1] = _resolve_needs_grok(
+        planned_list[n - 1] = _resolve_needs_llm(
             planned, item, results, adapter, config
         )
 
@@ -707,7 +707,7 @@ def _jev_product_pass(
             planned.update(resolved)
 
 
-def _resolve_needs_grok(
+def _resolve_needs_llm(
     planned: dict,
     item: dict,
     results: list[ProductResult],

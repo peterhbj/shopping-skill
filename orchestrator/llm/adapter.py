@@ -2,7 +2,6 @@
 adapter.py — Adapter para invocar uma LLM (opcional).
 
 ClaudeCodeCLIAdapter: subprocess do `claude -p` isolado.
-Pode ser trocado por outro adapter no futuro.
 """
 
 from __future__ import annotations
@@ -10,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
@@ -56,150 +54,11 @@ def _parse_json_tolerant(raw: str) -> dict:
     raise LLMCallError(f"Resposta não contém JSON: {raw[:200]!r}")
 
 
-class GrokCLIAdapter(LLMAdapter):
-    """Headless Grok Build: `grok -p` (legado; o padrão é o claude -p)."""
-
-    _DISALLOWED = (
-        "run_terminal_cmd,web_search,web_fetch,search_replace,"
-        "read_file,grep,list_dir,Agent"
-    )
-
-    def __init__(
-        self,
-        model: str | None = None,
-        timeout_s: int = 120,
-        extra_args: Optional[list[str]] = None,
-        grok_bin: Optional[str] = None,
-    ):
-        allowed = {"grok-4.6", "grok-4.5"}
-        if model in allowed:
-            self.model = model
-        else:
-            # default do CLI (hoje: grok-4.6). Não passar -m grok-build.
-            self.model = None
-        self.timeout = timeout_s
-        self.extra_args = extra_args or []
-        self.grok_bin = grok_bin or self._resolve_grok_bin()
-
-    @staticmethod
-    def _resolve_grok_bin() -> str:
-        found = shutil.which("grok")
-        if found:
-            return found
-        home = Path(os.path.expanduser("~")) / ".grok" / "bin"
-        for name in ("grok.exe", "grok"):
-            p = home / name
-            if p.is_file():
-                return str(p)
-        return "grok"
-
-    def ask(self, prompt: str) -> str:
-        args = [
-            self.grok_bin,
-            "-p", prompt,
-            "--output-format", "json",
-            "--verbatim",
-            "--max-turns", "1",
-            "--disallowed-tools", self._DISALLOWED,
-        ]
-        if self.model:
-            args += ["-m", self.model]
-        args += self.extra_args
-        try:
-            result = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                cwd=tempfile.gettempdir(),
-            )
-        except subprocess.TimeoutExpired as e:
-            raise LLMCallError(f"grok CLI timeout após {self.timeout}s") from e
-        except FileNotFoundError as e:
-            raise LLMCallError(
-                "grok CLI não encontrado. Instale o Grok Build e rode `grok login`."
-            ) from e
-        if result.returncode != 0:
-            raise LLMCallError(
-                f"grok CLI rc={result.returncode}\nstderr: {(result.stderr or '')[:400]}"
-            )
-        raw = (result.stdout or "").strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            return raw
-        if isinstance(data, dict) and data.get("type") == "error":
-            raise LLMCallError(f"grok CLI: {data.get('message', data)}")
-        if isinstance(data, dict) and "text" in data:
-            return str(data["text"]).strip()
-        return raw
-
-
-class CodexCLIAdapter(LLMAdapter):
-    """`codex exec` headless, usando o login do ChatGPT do Codex CLI (OAuth)."""
-
-    def __init__(
-        self,
-        model: str = "gpt-6-luna",
-        timeout_s: int = 300,
-        reasoning_effort: str = "low",
-        codex_bin: Optional[str] = None,
-    ):
-        self.model = model
-        self.timeout = timeout_s
-        self.reasoning_effort = reasoning_effort
-        self.codex_bin = codex_bin or shutil.which("codex") or "codex"
-
-    def ask(self, prompt: str) -> str:
-        with tempfile.TemporaryDirectory(prefix="shop-codex-") as tmp:
-            out = Path(tmp) / "last.txt"
-            args = [
-                self.codex_bin, "exec",
-                "-m", self.model,
-                "-s", "read-only",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "-c", f"model_reasoning_effort={self.reasoning_effort}",
-                "-o", str(out),
-                prompt,
-            ]
-            try:
-                result = subprocess.run(
-                    args, capture_output=True, text=True,
-                    timeout=self.timeout, cwd=tmp, stdin=subprocess.DEVNULL,
-                    env=_env_without_secrets(),
-                )
-            except subprocess.TimeoutExpired as e:
-                raise LLMCallError(f"codex CLI timeout após {self.timeout}s") from e
-            except FileNotFoundError as e:
-                raise LLMCallError(
-                    "codex CLI não encontrado. Instale o Codex CLI e rode `codex login`."
-                ) from e
-            if result.returncode != 0:
-                raise LLMCallError(
-                    f"codex CLI rc={result.returncode}\nstderr: {(result.stderr or '')[-400:]}"
-                )
-            if out.is_file():
-                return out.read_text(encoding="utf-8").strip()
-            return (result.stdout or "").strip()
-
-
-def _env_without_secrets() -> dict:
-    """O modelo lê nomes de produtos vindos do site; não deixe chaves ao alcance dele."""
-    return {k: v for k, v in os.environ.items()
-            if k != "TYPESAFE_API_KEY" and not k.endswith(("_API_KEY", "_TOKEN", "_SECRET"))}
-
-
 def make_adapter(raw_cfg: dict | None = None) -> LLMAdapter:
-    """Escolhe o adapter: env SHOP_LLM_PROVIDER/SHOP_LLM_MODEL > perfil > claude."""
+    """Monta o adapter do Claude: env SHOP_LLM_MODEL > perfil > claude-haiku-5-5."""
     raw_cfg = raw_cfg or {}
-    provider = (os.getenv("SHOP_LLM_PROVIDER") or raw_cfg.get("llm_provider") or "claude").lower()
     model = os.getenv("SHOP_LLM_MODEL") or raw_cfg.get("llm_model")
     timeout = int(raw_cfg.get("llm_timeout_s", 120))
-    if provider == "codex":
-        return CodexCLIAdapter(model=model or "gpt-6-luna", timeout_s=max(timeout, 300))
-    if provider == "grok":
-        return GrokCLIAdapter(model=model or "grok-4.6", timeout_s=timeout)
     return ClaudeCodeCLIAdapter(model=model or "claude-haiku-5-5", timeout_s=timeout)
 
 
